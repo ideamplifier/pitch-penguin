@@ -6,56 +6,127 @@
 //
 
 import SwiftUI
-import SwiftData
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
-
+    @State private var selectedString = 0
+    @State private var isListening = false
+    @State private var penguinState: PenguinState = .waiting
+    @State private var showPermissionAlert = false
+    
+    @StateObject private var audioEngine = AudioEngine()
+    
+    let guitarStrings = [
+        GuitarString(note: "E", octave: 2, frequency: 82.41),
+        GuitarString(note: "A", octave: 2, frequency: 110.00),
+        GuitarString(note: "D", octave: 3, frequency: 146.83),
+        GuitarString(note: "G", octave: 3, frequency: 196.00),
+        GuitarString(note: "B", octave: 3, frequency: 246.94),
+        GuitarString(note: "E", octave: 4, frequency: 329.63)
+    ]
+    
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
+        ZStack {
+            Color(red: 0.95, green: 0.92, blue: 0.88)
+                .ignoresSafeArea()
+            
+            VStack(spacing: 30) {
+                Text("Pitch Penguin")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                    .padding(.top, 40)
+                
+                StringSelector(selectedString: $selectedString, strings: guitarStrings)
+                    .padding(.horizontal)
+                
+                ZStack {
+                    TuningMeter(targetFrequency: guitarStrings[selectedString].frequency,
+                              currentFrequency: audioEngine.detectedFrequency)
+                        .frame(height: 200)
+                    
+                    PenguinView(state: penguinState)
+                        .frame(width: 120, height: 120)
+                        .offset(y: 60)
                 }
-                .onDelete(perform: deleteItems)
+                
+                FrequencyDisplay(currentFrequency: audioEngine.detectedFrequency,
+                               targetFrequency: guitarStrings[selectedString].frequency)
+                
+                Spacer()
+                
+                Button(action: toggleListening) {
+                    Label(isListening ? "Stop" : "Start Tuning",
+                          systemImage: isListening ? "stop.circle.fill" : "play.circle.fill")
+                        .font(.title2)
+                        .padding()
+                        .background(isListening ? Color.red : Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                }
+                .padding(.bottom, 40)
             }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-        } detail: {
-            Text("Select an item")
+        }
+        .onChange(of: audioEngine.detectedFrequency) { _, newValue in
+            updatePenguinState(currentFrequency: newValue, targetFrequency: guitarStrings[selectedString].frequency)
+        }
+        .alert("Microphone Permission", isPresented: $showPermissionAlert) {
+            Button("OK") { }
+        } message: {
+            Text("Please allow microphone access in Settings to use the tuner.")
         }
     }
-
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
+    
+    private func toggleListening() {
+        if isListening {
+            audioEngine.stopRecording()
+            isListening = false
+            penguinState = .waiting
+        } else {
+            audioEngine.requestMicrophonePermission { granted in
+                if granted {
+                    audioEngine.startRecording()
+                    isListening = true
+                } else {
+                    showPermissionAlert = true
+                }
             }
         }
+    }
+    
+    private func updatePenguinState(currentFrequency: Double, targetFrequency: Double) {
+        guard currentFrequency > 0 else {
+            penguinState = .waiting
+            return
+        }
+        
+        let cents = 1200 * log2(currentFrequency / targetFrequency)
+        
+        if abs(cents) < 5 {
+            penguinState = .correct
+        } else if cents < 0 {
+            penguinState = .tooLow
+        } else {
+            penguinState = .tooHigh
+        }
+    }
+}
+
+enum PenguinState {
+    case waiting
+    case tooLow
+    case correct
+    case tooHigh
+}
+
+struct GuitarString {
+    let note: String
+    let octave: Int
+    let frequency: Double
+    
+    var displayName: String {
+        "\(note)\(octave)"
     }
 }
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
 }
