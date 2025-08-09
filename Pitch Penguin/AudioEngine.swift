@@ -1,3 +1,4 @@
+
 //
 //  AudioEngine.swift
 //  Pitch Penguin
@@ -35,7 +36,7 @@ class AudioEngine: NSObject, ObservableObject {
             try session.setCategory(.record, mode: .measurement, options: [])
             try session.setActive(true)
             
-            let recordingFormat = inputNode.outputFormat(forBus: bus)
+            let recordingFormat = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)
             
             inputNode.installTap(onBus: bus, bufferSize: bufferSize, format: recordingFormat) { [weak self] buffer, _ in
                 self?.processAudioBuffer(buffer)

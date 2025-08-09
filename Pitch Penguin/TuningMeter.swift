@@ -35,24 +35,24 @@ struct TuningMeter: View {
         GeometryReader { geometry in
             ZStack {
                 Arc(startAngle: .degrees(225), endAngle: .degrees(315))
-                    .stroke(Color.gray.opacity(0.3), lineWidth: 20)
+                    .stroke(Color.gray.opacity(0.3), lineWidth: 15)
                 
                 Arc(startAngle: .degrees(225), endAngle: .degrees(315))
                     .trim(from: 0, to: CGFloat((needleRotation + 45) / 90))
-                    .stroke(meterColor, lineWidth: 20)
+                    .stroke(meterColor, lineWidth: 15)
                 
                 ForEach([-45, -30, -15, 0, 15, 30, 45], id: \.self) { angle in
                     Rectangle()
                         .fill(Color.gray)
                         .frame(width: 2, height: 10)
-                        .offset(y: -geometry.size.height * 0.35)
+                        .offset(y: -geometry.size.height * 0.4)
                         .rotationEffect(.degrees(Double(angle) + 270))
                 }
                 
                 Rectangle()
                     .fill(Color.black)
-                    .frame(width: 3, height: geometry.size.height * 0.4)
-                    .offset(y: -geometry.size.height * 0.2)
+                    .frame(width: 3, height: geometry.size.height * 0.45)
+                    .offset(y: -geometry.size.height * 0.225)
                     .rotationEffect(.degrees(needleRotation + 270))
                 
                 Circle()
@@ -71,7 +71,7 @@ struct Arc: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.addArc(center: CGPoint(x: rect.midX, y: rect.midY),
-                    radius: rect.width * 0.35,
+                    radius: rect.width * 0.4,
                     startAngle: startAngle,
                     endAngle: endAngle,
                     clockwise: false)

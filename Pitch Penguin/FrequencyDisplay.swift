@@ -43,8 +43,13 @@ struct FrequencyDisplay: View {
     }
     
     var body: some View {
-        VStack(spacing: 10) {
-            HStack {
+        VStack(spacing: 15) {
+            Text(statusText)
+                .font(.title)
+                .fontWeight(.bold)
+                .foregroundColor(statusColor)
+            
+            HStack(spacing: 60) {
                 VStack(alignment: .leading) {
                     Text("Current")
                         .font(.caption)
@@ -53,8 +58,6 @@ struct FrequencyDisplay: View {
                         .font(.title3)
                         .fontWeight(.medium)
                 }
-                
-                Spacer()
                 
                 VStack(alignment: .trailing) {
                     Text("Target")
@@ -65,12 +68,6 @@ struct FrequencyDisplay: View {
                         .fontWeight(.medium)
                 }
             }
-            .padding(.horizontal, 40)
-            
-            Text(statusText)
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(statusColor)
             
             if currentFrequency > 0 {
                 Text(String(format: "%+.0f cents", cents))

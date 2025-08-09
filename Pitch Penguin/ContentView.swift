@@ -41,15 +41,17 @@ struct ContentView: View {
                 ZStack {
                     TuningMeter(targetFrequency: guitarStrings[selectedString].frequency,
                               currentFrequency: audioEngine.detectedFrequency)
-                        .frame(height: 200)
+                        .frame(height: 180)
                     
                     PenguinView(state: penguinState)
                         .frame(width: 120, height: 120)
-                        .offset(y: 60)
+                        .offset(y: 80)
                 }
+                .padding(.vertical, 20)
                 
                 FrequencyDisplay(currentFrequency: audioEngine.detectedFrequency,
                                targetFrequency: guitarStrings[selectedString].frequency)
+                    .padding(.top, 30)
                 
                 Spacer()
                 
