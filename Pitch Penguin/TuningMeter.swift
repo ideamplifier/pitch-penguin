@@ -46,14 +46,14 @@ struct TuningMeter: View {
                         .fill(Color.gray)
                         .frame(width: 2, height: 10)
                         .offset(y: -geometry.size.height * 0.4)
-                        .rotationEffect(.degrees(Double(angle) + 270))
+                        .rotationEffect(.degrees(Double(angle) + 360))
                 }
                 
                 Rectangle()
                     .fill(Color.black)
                     .frame(width: 3, height: geometry.size.height * 0.45)
                     .offset(y: -geometry.size.height * 0.225)
-                    .rotationEffect(.degrees(needleRotation + 270))
+                    .rotationEffect(.degrees(needleRotation + 360))
                 
                 Circle()
                     .fill(Color.black)
@@ -70,7 +70,7 @@ struct Arc: Shape {
     
     func path(in rect: CGRect) -> Path {
         var path = Path()
-        path.addArc(center: CGPoint(x: rect.midX, y: rect.midY),
+        path.addArc(center: CGPoint(x: rect.midX, y: rect.midY + 50),
                     radius: rect.width * 0.4,
                     startAngle: startAngle,
                     endAngle: endAngle,

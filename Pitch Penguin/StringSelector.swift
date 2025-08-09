@@ -10,28 +10,21 @@ import SwiftUI
 struct StringSelector: View {
     @Binding var selectedString: Int
     let strings: [GuitarString]
+    let toneGenerator = ToneGenerator()
     
     var body: some View {
-        HStack(spacing: 15) {
+        HStack(spacing: 12) {
             ForEach(0..<strings.count, id: \.self) { index in
                 Button(action: {
                     selectedString = index
+                    toneGenerator.playTone(frequency: strings[index].frequency, duration: 1.0)
                 }) {
-                    VStack {
-                        Text(strings[index].note)
-                            .font(.title2)
-                            .fontWeight(selectedString == index ? .bold : .regular)
-                        Text("\(strings[index].octave)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(width: 50, height: 50)
-                    .background(selectedString == index ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
-                    .cornerRadius(10)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(selectedString == index ? Color.blue : Color.clear, lineWidth: 2)
-                    )
+                    Text(strings[index].note)
+                        .font(.title2)
+                        .foregroundColor(selectedString == index ? Color(red: 0.95, green: 0.92, blue: 0.88) : .primary)
+                        .frame(width: 40, height: 40)
+                    .background(selectedString == index ? Color(red: 0.055, green: 0.059, blue: 0.063) : Color.gray.opacity(0.1))
+                    .cornerRadius(12)
                 }
                 .buttonStyle(PlainButtonStyle())
             }

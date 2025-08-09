@@ -48,32 +48,34 @@ struct FrequencyDisplay: View {
                 .font(.title)
                 .fontWeight(.bold)
                 .foregroundColor(statusColor)
+                .frame(height: 34)
             
             HStack(spacing: 60) {
-                VStack(alignment: .leading) {
+                VStack(alignment: .center, spacing: 4) {
                     Text("Current")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .frame(height: 16)
                     Text(currentFrequency > 0 ? String(format: "%.1f Hz", currentFrequency) : "-- Hz")
                         .font(.title3)
                         .fontWeight(.medium)
+                        .frame(width: 100, height: 28, alignment: .center)
                 }
+                .frame(width: 100)
                 
-                VStack(alignment: .trailing) {
+                VStack(alignment: .center, spacing: 4) {
                     Text("Target")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .frame(height: 16)
                     Text(String(format: "%.1f Hz", targetFrequency))
                         .font(.title3)
                         .fontWeight(.medium)
+                        .frame(width: 100, height: 28, alignment: .center)
                 }
+                .frame(width: 100)
             }
             
-            if currentFrequency > 0 {
-                Text(String(format: "%+.0f cents", cents))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
         }
     }
 }
