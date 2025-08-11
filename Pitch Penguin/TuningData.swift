@@ -28,6 +28,14 @@ class TuningData {
             GuitarString(note: "B", octave: 3, frequency: 246.94),
             GuitarString(note: "E", octave: 4, frequency: 329.63)
         ]),
+        Tuning(name: "Half Step Down", notes: [
+            GuitarString(note: "Eb", octave: 2, frequency: 77.78),
+            GuitarString(note: "Ab", octave: 2, frequency: 103.83),
+            GuitarString(note: "Db", octave: 3, frequency: 138.59),
+            GuitarString(note: "Gb", octave: 3, frequency: 185.00),
+            GuitarString(note: "Bb", octave: 3, frequency: 233.08),
+            GuitarString(note: "Eb", octave: 4, frequency: 311.13)
+        ]),
         Tuning(name: "Drop D", notes: [
             GuitarString(note: "D", octave: 2, frequency: 73.42),
             GuitarString(note: "A", octave: 2, frequency: 110.00),

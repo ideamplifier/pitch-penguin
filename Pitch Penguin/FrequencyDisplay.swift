@@ -11,9 +11,11 @@ struct FrequencyDisplay: View {
     let currentFrequency: Double
     let targetFrequency: Double
     
+    @State private var animatedFrequency: Double = 0
+    
     private var cents: Double {
-        guard currentFrequency > 0 && targetFrequency > 0 else { return 0 }
-        return 1200 * log2(currentFrequency / targetFrequency)
+        guard animatedFrequency > 0 && targetFrequency > 0 else { return 0 }
+        return 1200 * log2(animatedFrequency / targetFrequency)
     }
     
     private var statusText: String {
@@ -56,10 +58,11 @@ struct FrequencyDisplay: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .frame(height: 16)
-                    Text(currentFrequency > 0 ? String(format: "%.1f Hz", currentFrequency) : "-- Hz")
+                    Text(animatedFrequency > 0 ? String(format: "%.1f Hz", animatedFrequency) : "-- Hz")
                         .font(.title3)
                         .fontWeight(.medium)
                         .frame(width: 100, height: 28, alignment: .center)
+                        .contentTransition(.numericText())
                 }
                 .frame(width: 100)
                 
@@ -76,6 +79,14 @@ struct FrequencyDisplay: View {
                 .frame(width: 100)
             }
             
+        }
+        .onAppear {
+            animatedFrequency = currentFrequency
+        }
+        .onChange(of: currentFrequency) { _, newValue in
+            withAnimation(.easeInOut(duration: 0.1)) {
+                animatedFrequency = newValue
+            }
         }
     }
 }

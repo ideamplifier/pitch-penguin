@@ -16,24 +16,62 @@ class AudioEngine: NSObject, ObservableObject {
     private var inputNode: AVAudioInputNode!
     private var bus: Int = 0
     
-    private let bufferSize: UInt32 = 2048  // Reduced for faster response
-    private let sampleRate: Double = 44100.0
+    private let bufferSize: UInt32 = 1024  // Reduced for smoother updates (~23ms)
+    private var sampleRate: Double = 44100.0
     
-    // Pitch stabilization
+    // Pitch stabilization - smaller buffer for faster response
     private var frequencyBuffer: [Double] = []
-    private let bufferMaxSize = 5
+    private let bufferMaxSize = 5  // Slightly larger for stability
     
-    // Noise gate
-    private let noiseGateThreshold: Float = 0.01
+    // Smooth frequency tracking
+    private var smoothedFrequency: Double = 0.0
+    private let smoothingFactor: Double = 0.85  // EMA factor (0.8-0.95 for smooth movement)
+    
+    // Dynamic noise gate
+    private var noiseGateThreshold: Float = 0.005 // Initial value
+    private var noiseFloor: Float = 0.0
+    private var noiseBuffer: [Float] = []
+    private let noiseBufferSize = 50
+    private let noiseMultiplier: Float = 3.5 // Adaptive threshold multiplier
+    
+    // Advanced pitch detection
+    private var hybridDetector: HybridPitchDetector?
+    private var lastConfidence: Float = 0.0
+    
+    // Performance optimization
+    private var windowFunction: [Float] = []
+    private let combFilter = CombFilter()
+    
+    // Multi-threading
+    private let processingQueue = DispatchQueue(label: "com.pitchpenguin.dsp", qos: .userInteractive)
+    private let processingSemaphore = DispatchSemaphore(value: 1)
+    
+    // Adaptive buffer
+    private var adaptiveBufferSize: UInt32 = 1024
+    private let lowFreqThreshold: Double = 150.0  // Below this, use larger buffer
+    
+    // Battery optimization
+    private var silenceTimer: Timer?
+    private var consecutiveSilentFrames = 0
+    private let silenceThreshold = 50  // ~1 second of silence
+    
+    // Debug counter
+    private var debugCounter = 0
     
     override init() {
         super.init()
         setupAudio()
+        setupWindowFunction()
     }
     
     private func setupAudio() {
         audioEngine = AVAudioEngine()
         inputNode = audioEngine.inputNode
+    }
+    
+    private func setupWindowFunction() {
+        windowFunction = [Float](repeating: 0, count: Int(bufferSize))
+        vDSP_hamm_window(&windowFunction, vDSP_Length(bufferSize), 0)
     }
     
     func startRecording() {
@@ -42,10 +80,24 @@ class AudioEngine: NSObject, ObservableObject {
             try session.setCategory(.record, mode: .measurement, options: [])
             try session.setActive(true)
             
-            // Use input node's format instead of creating custom format
+            // Get the default input format from the hardware
             let inputFormat = inputNode.outputFormat(forBus: bus)
             
-            inputNode.installTap(onBus: bus, bufferSize: bufferSize, format: inputFormat) { [weak self] buffer, _ in
+            // Use the input node's format directly to avoid mismatch
+            sampleRate = inputFormat.sampleRate
+            
+            // Initialize hybrid detector with correct sample rate
+            hybridDetector = HybridPitchDetector(sampleRate: sampleRate)
+            
+            print("Input format: \(inputFormat)")
+            print("Sample rate: \(sampleRate)")
+            print("Channels: \(inputFormat.channelCount)")
+            
+            // Use adaptive buffer size
+            let currentBufferSize = adaptiveBufferSize > 0 ? adaptiveBufferSize : bufferSize
+            
+            // Install tap with the same format as the input node
+            inputNode.installTap(onBus: bus, bufferSize: currentBufferSize, format: inputFormat) { [weak self] buffer, _ in
                 self?.processAudioBuffer(buffer)
             }
             
@@ -82,6 +134,13 @@ class AudioEngine: NSObject, ObservableObject {
         let frameCount = Int(buffer.frameLength)
         let channelCount = Int(buffer.format.channelCount)
         
+        // Skip if already processing (prevent queue buildup)
+        guard processingSemaphore.wait(timeout: .now()) == .success else { return }
+        
+        // Process on background queue for better performance
+        processingQueue.async { [weak self] in
+            defer { self?.processingSemaphore.signal() }
+        
         // Convert to mono if stereo
         var monoData: [Float]
         if channelCount > 1 {
@@ -97,36 +156,101 @@ class AudioEngine: NSObject, ObservableObject {
             monoData = Array(UnsafeBufferPointer(start: channelData[0], count: frameCount))
         }
         
-        // Apply noise gate
+        // Calculate signal power
         var signalPower: Float = 0
         vDSP_measqv(monoData, 1, &signalPower, vDSP_Length(frameCount))
         signalPower = sqrt(signalPower)
         
-        if signalPower < noiseGateThreshold {
+        // Update dynamic noise floor
+        self?.updateNoiseFloor(signalPower: signalPower)
+        
+        // Apply dynamic noise gate
+        let dynamicThreshold = max(self?.noiseGateThreshold ?? 0.005, (self?.noiseFloor ?? 0) * (self?.noiseMultiplier ?? 3.5))
+        
+        // Debug print - only occasionally to avoid performance impact
+        self?.debugCounter += 1
+        if (self?.debugCounter ?? 0) % 30 == 0 && signalPower > 0.001 {
+            print("Signal: \(signalPower), Noise floor: \(self?.noiseFloor ?? 0), Threshold: \(dynamicThreshold)")
+        }
+        
+        if signalPower < dynamicThreshold {
             DispatchQueue.main.async {
-                self.detectedFrequency = 0.0
+                self?.detectedFrequency = 0.0
             }
             return
         }
         
         // Apply high-pass filter to remove low frequency noise
-        let filteredData = applyHighPassFilter(channelData: monoData, frameCount: frameCount)
+        guard let strongSelf = self else { return }
+        let filteredData = strongSelf.applyHighPassFilter(channelData: monoData, frameCount: frameCount)
         
         // Apply window function
-        let windowedData = applyWindow(data: filteredData, frameCount: frameCount)
+        let windowedData = strongSelf.applyWindow(data: filteredData, frameCount: frameCount)
         
         // Detect pitch with enhanced YIN
-        let frequency = detectPitch(channelData: windowedData, frameCount: frameCount)
+        let yinFrequency = strongSelf.detectPitch(channelData: windowedData, frameCount: frameCount)
         
-        // Stabilize frequency
-        if frequency > 0 {
-            stabilizeFrequency(frequency)
+        // Use enhanced hybrid detection with confidence scoring
+        let frequency: Double
+        if let detector = strongSelf.hybridDetector {
+            frequency = detector.detectPitch(data: windowedData, yinResult: yinFrequency)
+            
+            // Calculate harmonic confidence for better accuracy
+            if frequency > 0 {
+                let confidence = strongSelf.calculateHarmonicConfidence(frequency: frequency, data: windowedData)
+                strongSelf.lastConfidence = confidence
+                
+                // Debug output
+                if (strongSelf.debugCounter) % 30 == 0 {
+                    print("Frequency: \(frequency)Hz, Confidence: \(confidence)")
+                }
+                
+                // Apply comb filter for harmonic enhancement
+                let period = Int(strongSelf.sampleRate / frequency)
+                if period > 0 && period < frameCount / 2 {
+                    let _ = strongSelf.combFilter.apply(data: windowedData, fundamentalPeriod: period)
+                }
+                
+                // Only accept high confidence results
+                if confidence < 0.5 && yinFrequency > 0 {
+                    // Use YIN as fallback for low confidence
+                    self?.stabilizeFrequency(yinFrequency)
+                } else {
+                    self?.stabilizeFrequency(frequency)
+                }
+            } else {
+                DispatchQueue.main.async {
+                    self?.detectedFrequency = 0.0
+                    self?.frequencyBuffer.removeAll()
+                }
+            }
         } else {
-            DispatchQueue.main.async {
-                self.detectedFrequency = 0.0
-                self.frequencyBuffer.removeAll()
+            frequency = yinFrequency
+            if frequency > 0 {
+                self?.stabilizeFrequency(frequency)
+            } else {
+                DispatchQueue.main.async {
+                    self?.detectedFrequency = 0.0
+                    self?.frequencyBuffer.removeAll()
+                }
             }
         }
+        
+        // Update adaptive buffer size based on detected frequency
+        self?.updateAdaptiveBufferSize(frequency: frequency)
+        
+        // Battery optimization: track silence
+        if frequency == 0 {
+            self?.consecutiveSilentFrames += 1
+            if self?.consecutiveSilentFrames ?? 0 > self?.silenceThreshold ?? 50 {
+                self?.enterLowPowerMode()
+            }
+        } else {
+            self?.consecutiveSilentFrames = 0
+            self?.exitLowPowerMode()
+        }
+        
+        } // End of processingQueue.async
     }
     
     private func applyHighPassFilter(channelData: [Float], frameCount: Int) -> [Float] {
@@ -176,15 +300,30 @@ class AudioEngine: NSObject, ObservableObject {
             median = frequency
         }
         
-        DispatchQueue.main.async {
-            self.detectedFrequency = median
+        // Apply exponential moving average for smooth transitions
+        if smoothedFrequency > 0 {
+            // EMA: new = α * current + (1-α) * previous
+            smoothedFrequency = smoothingFactor * median + (1 - smoothingFactor) * smoothedFrequency
+            
+            // Apply soft hysteresis (reduced from 3 to 1 cent for smoother movement)
+            let centsDiff = 1200 * log2(smoothedFrequency / self.detectedFrequency)
+            if abs(centsDiff) > 0.5 || self.detectedFrequency == 0 {
+                DispatchQueue.main.async {
+                    self.detectedFrequency = self.smoothedFrequency
+                }
+            }
+        } else {
+            smoothedFrequency = median
+            DispatchQueue.main.async {
+                self.detectedFrequency = median
+            }
         }
     }
     
     private func detectPitch(channelData: [Float], frameCount: Int) -> Double {
-        let threshold: Float = 0.15  // Slightly higher for better accuracy
-        let minFreq: Double = 70.0   // E2 - 20Hz for margin
-        let maxFreq: Double = 400.0  // E4 + margin
+        let threshold: Float = 0.12  // Optimized threshold for accuracy vs speed
+        let minFreq: Double = 65.0   // C2 for wider range
+        let maxFreq: Double = 500.0  // B4 + margin for harmonics
         
         let minPeriod = Int(sampleRate / maxFreq)
         let maxPeriod = min(Int(sampleRate / minFreq), frameCount / 2)
@@ -279,6 +418,156 @@ class AudioEngine: NSObject, ObservableObject {
                     completion(granted)
                 }
             }
+        }
+    }
+    
+    // MARK: - Dynamic Noise Floor
+    
+    private func updateNoiseFloor(signalPower: Float) {
+        // Add to noise buffer
+        noiseBuffer.append(signalPower)
+        
+        // Keep buffer size limited
+        if noiseBuffer.count > noiseBufferSize {
+            noiseBuffer.removeFirst()
+        }
+        
+        // Calculate noise floor as the 10th percentile of recent samples
+        if noiseBuffer.count >= 10 {
+            let sorted = noiseBuffer.sorted()
+            let index = Int(Float(sorted.count) * 0.1) // 10th percentile
+            noiseFloor = sorted[index]
+        }
+    }
+    
+    // MARK: - Enhanced Harmonic Analysis
+    
+    private func calculateHarmonicConfidence(frequency: Double, data: [Float]) -> Float {
+        guard frequency > 0 else { return 0.0 }
+        
+        // Ensure power of 2 size
+        let nextPowerOf2 = 1 << Int(ceil(log2(Double(data.count))))
+        var paddedData = [Float](repeating: 0, count: nextPowerOf2)
+        paddedData.replaceSubrange(0..<data.count, with: data)
+        
+        // Prepare for FFT
+        let log2n = vDSP_Length(log2(Float(paddedData.count)))
+        guard let fftSetup = vDSP_create_fftsetup(log2n, Int32(kFFTRadix2)) else { return 0.0 }
+        defer { vDSP_destroy_fftsetup(fftSetup) }
+        
+        var realp = [Float](repeating: 0, count: paddedData.count/2)
+        var imagp = [Float](repeating: 0, count: paddedData.count/2)
+        var magnitudes = [Float](repeating: 0, count: paddedData.count/2)
+        
+        // Apply window if available
+        var windowedData = paddedData
+        if windowFunction.count >= paddedData.count {
+            vDSP_vmul(paddedData, 1, windowFunction, 1, &windowedData, 1, vDSP_Length(paddedData.count))
+        }
+        
+        // Convert to split complex format and perform FFT
+        realp.withUnsafeMutableBufferPointer { realPtr in
+            imagp.withUnsafeMutableBufferPointer { imagPtr in
+                var splitComplex = DSPSplitComplex(realp: realPtr.baseAddress!, imagp: imagPtr.baseAddress!)
+                
+                // Pack real data into complex format
+                windowedData.withUnsafeBufferPointer { ptr in
+                    ptr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: paddedData.count/2) { complexPtr in
+                        vDSP_ctoz(complexPtr, 2, &splitComplex, 1, vDSP_Length(paddedData.count/2))
+                    }
+                }
+                
+                // Perform FFT
+                vDSP_fft_zrip(fftSetup, &splitComplex, 1, log2n, Int32(FFT_FORWARD))
+                
+                // Calculate magnitude spectrum
+                vDSP_zvmags(&splitComplex, 1, &magnitudes, 1, vDSP_Length(paddedData.count/2))
+            }
+        }
+        
+        // Calculate harmonic score
+        var harmonicScore: Float = 0.0
+        let freqFloat = Float(frequency)
+        let sampleRateFloat = Float(sampleRate)
+        let binSize = sampleRateFloat / Float(paddedData.count)
+        let fundamentalBin = Int(freqFloat / binSize)
+        
+        // Check first 5 harmonics
+        for harmonic in 1...5 {
+            let bin = fundamentalBin * harmonic
+            if bin < magnitudes.count {
+                // Get peak magnitude around expected harmonic
+                let startBin = max(0, bin - 2)
+                let endBin = min(magnitudes.count - 1, bin + 2)
+                
+                var maxMag: Float = 0
+                for i in startBin...endBin {
+                    if magnitudes[i] > maxMag {
+                        maxMag = magnitudes[i]
+                    }
+                }
+                
+                // Weight higher harmonics less
+                harmonicScore += maxMag / Float(harmonic)
+            }
+        }
+        
+        // Normalize confidence score
+        return min(1.0, harmonicScore / 1000.0)
+    }
+    
+    // MARK: - Adaptive Buffer Management
+    
+    private func updateAdaptiveBufferSize(frequency: Double) {
+        guard frequency > 0 else { return }
+        
+        // Use larger buffer for low frequencies (better accuracy)
+        // Smaller buffer for high frequencies (faster response)
+        let newBufferSize: UInt32
+        if frequency < lowFreqThreshold {
+            newBufferSize = 2048  // ~46ms for low notes
+        } else if frequency < 300 {
+            newBufferSize = 1024  // ~23ms for mid notes
+        } else {
+            newBufferSize = 512   // ~11ms for high notes
+        }
+        
+        if adaptiveBufferSize != newBufferSize {
+            adaptiveBufferSize = newBufferSize
+            // Reinstall tap with new buffer size for immediate effect
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self, self.isRecording else { return }
+                
+                // Remove existing tap
+                self.inputNode.removeTap(onBus: self.bus)
+                
+                // Get the current input format
+                let inputFormat = self.inputNode.outputFormat(forBus: self.bus)
+                
+                // Reinstall with new buffer size using the same format
+                self.inputNode.installTap(onBus: self.bus, bufferSize: newBufferSize, format: inputFormat) { [weak self] buffer, _ in
+                    self?.processAudioBuffer(buffer)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Battery Optimization
+    
+    private func enterLowPowerMode() {
+        // Reduce processing when no sound detected for 1+ seconds
+        DispatchQueue.main.async { [weak self] in
+            self?.silenceTimer?.invalidate()
+            self?.silenceTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+                // Minimal processing during silence
+            }
+        }
+    }
+    
+    private func exitLowPowerMode() {
+        DispatchQueue.main.async { [weak self] in
+            self?.silenceTimer?.invalidate()
+            self?.silenceTimer = nil
         }
     }
 }

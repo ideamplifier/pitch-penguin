@@ -10,6 +10,7 @@ import SwiftUI
 struct StringSelector: View {
     @Binding var selectedString: Int
     let strings: [GuitarString]
+    let accuracyStates: [Bool]
     let toneGenerator = ToneGenerator()
     
     var body: some View {
@@ -21,10 +22,17 @@ struct StringSelector: View {
                 }) {
                     Text(strings[index].note)
                         .font(.title2)
-                        .foregroundColor(selectedString == index ? Color(red: 0.95, green: 0.92, blue: 0.88) : .primary)
+                        .foregroundColor(
+                            accuracyStates[safe: index] == true ? .white :
+                            selectedString == index ? Color(red: 0.95, green: 0.92, blue: 0.88) : .primary
+                        )
                         .frame(width: 40, height: 40)
-                    .background(selectedString == index ? Color(red: 0.055, green: 0.059, blue: 0.063) : Color.gray.opacity(0.1))
+                    .background(
+                        accuracyStates[safe: index] == true ? Color.green :
+                        selectedString == index ? Color(red: 0.055, green: 0.059, blue: 0.063) : Color.gray.opacity(0.1)
+                    )
                     .cornerRadius(12)
+                    .animation(.easeInOut(duration: 0.2), value: accuracyStates[safe: index])
                 }
                 .buttonStyle(PlainButtonStyle())
             }

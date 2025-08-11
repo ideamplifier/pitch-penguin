@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var delayTimer: Timer?
     @State private var selectedInstrument: InstrumentType = .guitar
     @State private var selectedTuningIndex = 0
+    @State private var stringAccuracyStates: [Bool] = Array(repeating: false, count: 6)
     
     @StateObject private var audioEngine = AudioEngine()
     
@@ -93,9 +94,10 @@ struct ContentView: View {
                                 Text(String(format: "%+.0f cents", cents))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
+                                    .offset(y: -2)
                             }
                         }
-                        .offset(y: -150)
+                        .offset(y: -152)
                     }
                     
                     PenguinView(state: penguinState)
@@ -112,19 +114,31 @@ struct ContentView: View {
                 
                 Spacer()
                 
-                StringSelector(selectedString: $selectedString, strings: currentStrings)
+                StringSelector(selectedString: $selectedString, 
+                             strings: currentStrings,
+                             accuracyStates: stringAccuracyStates)
                     .padding(.horizontal)
+                    .offset(y: -10)
                 
                 InstrumentSelector(selectedInstrument: $selectedInstrument, 
                                  selectedTuningIndex: $selectedTuningIndex)
                     .padding(.horizontal)
                     .padding(.bottom, 30)
+                    .offset(y: -10)
             }
         }
         .onAppear {
             startListening()
         }
         .onChange(of: audioEngine.detectedFrequency) { _, newValue in
+            // Auto select string
+            if newValue > 0 {
+                autoSelectString(frequency: newValue)
+            }
+            
+            // Update accuracy states for all strings
+            updateStringAccuracyStates(currentFrequency: newValue)
+            
             if let targetFreq = currentStrings[safe: selectedString]?.frequency {
                 updatePenguinState(currentFrequency: newValue, targetFrequency: targetFreq)
             }
@@ -173,6 +187,36 @@ struct ContentView: View {
             penguinState = .tooLow
         } else {
             penguinState = .tooHigh
+        }
+    }
+    
+    private func autoSelectString(frequency: Double) {
+        var closestString = 0
+        var minCentsDiff = Double.infinity
+        
+        for (index, string) in currentStrings.enumerated() {
+            let cents = abs(1200 * log2(frequency / string.frequency))
+            if cents < minCentsDiff && cents < 50 { // Within 50 cents
+                minCentsDiff = cents
+                closestString = index
+            }
+        }
+        
+        // Only change if significantly closer to another string
+        if closestString != selectedString && minCentsDiff < 30 {
+            selectedString = closestString
+        }
+    }
+    
+    private func updateStringAccuracyStates(currentFrequency: Double) {
+        guard currentFrequency > 0 else {
+            stringAccuracyStates = Array(repeating: false, count: currentStrings.count)
+            return
+        }
+        
+        for (index, string) in currentStrings.enumerated() {
+            let cents = abs(1200 * log2(currentFrequency / string.frequency))
+            stringAccuracyStates[safe: index] = cents < 5
         }
     }
 }

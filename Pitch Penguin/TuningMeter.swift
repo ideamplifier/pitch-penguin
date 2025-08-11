@@ -11,12 +11,15 @@ struct TuningMeter: View {
     let targetFrequency: Double
     let currentFrequency: Double
     
+    @State private var animatedRotation: Double = 0
+    @State private var previousRotation: Double = 0
+    
     private var cents: Double {
         guard currentFrequency > 0 && targetFrequency > 0 else { return 0 }
         return 1200 * log2(currentFrequency / targetFrequency)
     }
     
-    private var needleRotation: Double {
+    private var targetRotation: Double {
         return max(-45, min(45, cents / 50 * 45))
     }
     
@@ -38,8 +41,9 @@ struct TuningMeter: View {
                     .stroke(Color.gray.opacity(0.3), lineWidth: 15)
                 
                 Arc(startAngle: .degrees(225), endAngle: .degrees(315))
-                    .trim(from: 0, to: CGFloat((needleRotation + 45) / 90))
+                    .trim(from: 0, to: CGFloat((animatedRotation + 45) / 90))
                     .stroke(meterColor, lineWidth: 15)
+                    .animation(.easeInOut(duration: 0.1), value: animatedRotation)
                 
                 ForEach([-45, -30, -15, 0, 15, 30, 45], id: \.self) { angle in
                     Rectangle()
@@ -53,13 +57,26 @@ struct TuningMeter: View {
                     .fill(Color.black)
                     .frame(width: 3, height: geometry.size.height * 0.45)
                     .offset(y: -geometry.size.height * 0.225)
-                    .rotationEffect(.degrees(needleRotation + 360))
+                    .rotationEffect(.degrees(animatedRotation + 360))
+                    .animation(.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0), value: animatedRotation)
                 
                 Circle()
                     .fill(Color.black)
                     .frame(width: 15, height: 15)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .onAppear {
+            animatedRotation = targetRotation
+        }
+        .onChange(of: targetRotation) { _, newValue in
+            // Physics-based smoothing for more natural movement
+            let diff = abs(newValue - animatedRotation)
+            
+            // Use different animation speeds based on movement distance
+            withAnimation(diff > 20 ? .easeInOut(duration: 0.2) : .easeInOut(duration: 0.1)) {
+                animatedRotation = newValue
+            }
         }
     }
 }
