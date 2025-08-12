@@ -10,6 +10,7 @@ import SwiftUI
 struct TuningMeter: View {
     let targetFrequency: Double
     let currentFrequency: Double
+    @Binding var needlePosition: Double
     
     @State private var animatedRotation: Double = 0
     @State private var previousRotation: Double = 0
@@ -23,13 +24,16 @@ struct TuningMeter: View {
     }
     
     private var meterColor: Color {
-        let absCents = abs(cents)
-        if absCents < 5 {
-            return .green
-        } else if absCents < 15 {
-            return .yellow
+        guard currentFrequency > 0 else { return .gray }
+        
+        // Use animated rotation position instead of raw cents
+        let absRotation = abs(animatedRotation)
+        if absRotation < 9 {
+            return .green  // Perfect or Good
+        } else if animatedRotation < 0 {
+            return .yellow  // Low or Too low
         } else {
-            return .red
+            return Color(red: 0.914, green: 0.384, blue: 0.173)  // #e9622c - High or Too high
         }
     }
     
@@ -83,6 +87,7 @@ struct TuningMeter: View {
             
             withAnimation(.linear(duration: 0.05)) {
                 animatedRotation = newRotation
+                needlePosition = newRotation  // Update binding
             }
         }
     }

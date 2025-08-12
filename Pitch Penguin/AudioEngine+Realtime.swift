@@ -28,7 +28,7 @@ extension AudioEngine {
     // MARK: - Public start helper (call instead of your old dynamic tap logic)
     func startRealtimeInput() throws {
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.record, mode: .measurement, options: [])
+        try session.setCategory(.playAndRecord, mode: .measurement, options: [.mixWithOthers])
         try session.setActive(true)
 
         audioEngine = AVAudioEngine()
@@ -69,21 +69,38 @@ extension AudioEngine {
     }
 
     private func processRealtimeFrame(_ mono: [Float]) {
-        // Skip noise gate for now - just process everything
+        // Enhanced noise filtering
         var rms: Float = 0
         vDSP_rmsqv(mono, 1, &rms, vDSP_Length(mono.count))
         
-        if rms < 0.001 {
+        // Higher threshold for better noise rejection
+        if rms < 0.01 {  // Increased from 0.001
+            // Gradually decay to 0 instead of hard cut
+            DispatchQueue.main.async {
+                if self.detectedFrequency > 0 {
+                    self.detectedFrequency *= 0.9
+                    if self.detectedFrequency < 10 {
+                        self.detectedFrequency = 0
+                    }
+                }
+            }
             return
         }
 
         // Simple autocorrelation pitch detection
         let hz = simpleAutocorrelation(data: mono)
         
-        if hz > 0 {
-            print("🎵 Detected: \(hz) Hz")
-            DispatchQueue.main.async { 
-                self.detectedFrequency = hz
+        // Frequency validation
+        if hz > 50 && hz < 2000 {  // Reasonable range for guitar
+            // Store in history for stabilization
+            Static.stabilizer.addSample(hz)
+            
+            // Get stabilized frequency
+            if let stableHz = Static.stabilizer.getStableFrequency() {
+                print("🎵 Detected: \(stableHz) Hz (stabilized)")
+                DispatchQueue.main.async { 
+                    self.detectedFrequency = stableHz
+                }
             }
         }
     }

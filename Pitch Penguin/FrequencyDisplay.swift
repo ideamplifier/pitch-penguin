@@ -10,12 +10,12 @@ import SwiftUI
 struct FrequencyDisplay: View {
     let currentFrequency: Double
     let targetFrequency: Double
-    
-    @State private var animatedFrequency: Double = 0
+    var isAutoMode: Bool = false
+    var needlePosition: Double = 0
     
     private var cents: Double {
-        guard animatedFrequency > 0 && targetFrequency > 0 else { return 0 }
-        return 1200 * log2(animatedFrequency / targetFrequency)
+        guard currentFrequency > 0 && targetFrequency > 0 else { return 0 }
+        return 1200 * log2(currentFrequency / targetFrequency)
     }
     
     private var statusText: String {
@@ -23,24 +23,38 @@ struct FrequencyDisplay: View {
             return "Play a string"
         }
         
-        let absCents = abs(cents)
-        if absCents < 5 {
+        // Use needle position instead of cents
+        let absPosition = abs(needlePosition)
+        if absPosition < 5 {
             return "Perfect!"
-        } else if cents < 0 {
-            return "Too low"
+        } else if absPosition < 9 {
+            return "Good"
+        } else if absPosition < 20 {
+            if needlePosition < 0 {
+                return "Low"
+            } else {
+                return "High"
+            }
         } else {
-            return "Too high"
+            if needlePosition < 0 {
+                return "Too low"
+            } else {
+                return "Too high"
+            }
         }
     }
     
     private var statusColor: Color {
-        let absCents = abs(cents)
-        if absCents < 5 {
-            return .green
-        } else if absCents < 15 {
-            return .yellow
+        guard currentFrequency > 0 else { return .gray }
+        
+        // Use needle position instead of cents
+        let absPosition = abs(needlePosition)
+        if absPosition < 9 {
+            return .green  // Perfect or Good
+        } else if needlePosition < 0 {
+            return .yellow  // Low or Too low
         } else {
-            return .red
+            return Color(red: 0.914, green: 0.384, blue: 0.173)  // #e9622c - High or Too high
         }
     }
     
@@ -58,11 +72,10 @@ struct FrequencyDisplay: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .frame(height: 16)
-                    Text(animatedFrequency > 0 ? String(format: "%.1f Hz", animatedFrequency) : "-- Hz")
+                    Text(isAutoMode ? "--" : (currentFrequency > 0 ? String(format: "%.1f Hz", currentFrequency) : "-- Hz"))
                         .font(.title3)
                         .fontWeight(.medium)
                         .frame(width: 100, height: 28, alignment: .center)
-                        .contentTransition(.numericText())
                 }
                 .frame(width: 100)
                 
@@ -71,7 +84,7 @@ struct FrequencyDisplay: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .frame(height: 16)
-                    Text(String(format: "%.1f Hz", targetFrequency))
+                    Text(isAutoMode ? "--" : String(format: "%.1f Hz", targetFrequency))
                         .font(.title3)
                         .fontWeight(.medium)
                         .frame(width: 100, height: 28, alignment: .center)
@@ -79,14 +92,6 @@ struct FrequencyDisplay: View {
                 .frame(width: 100)
             }
             
-        }
-        .onAppear {
-            animatedFrequency = currentFrequency
-        }
-        .onChange(of: currentFrequency) { _, newValue in
-            withAnimation(.easeInOut(duration: 0.1)) {
-                animatedFrequency = newValue
-            }
         }
     }
 }
