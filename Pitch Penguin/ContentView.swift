@@ -31,40 +31,72 @@ struct ContentView: View {
         return currentTuning.notes
     }
     
+    // MARK: - Note helpers
+    private let NOTE_NAMES_SHARP = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"]
+    
     private func posMod(_ x: Int, _ m: Int) -> Int {
         let r = x % m
         return r >= 0 ? r : r + m
     }
     
-    private var detectedNote: String {
-        guard audioEngine.detectedFrequency > 0 else { return "--" }
+    private func hzToSemitoneOffset(from refHz: Double, to hz: Double) -> Double {
+        return 12.0 * log2(hz / refHz)
+    }
+    
+    /// Manual mode display calculation
+    private func manualDisplay(detectedHz: Double,
+                              baseNoteIndex: Int,
+                              baseOctave: Int,
+                              a4: Double = 440.0) -> (name: String, cents: Double) {
+        guard detectedHz > 0 else { return (NOTE_NAMES_SHARP[baseNoteIndex], 0) }
         
-        let noteNames = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"]
+        // Calculate base frequency
+        let baseMidi = 12 * (baseOctave + 1) + baseNoteIndex
+        let f0 = a4 * pow(2.0, (Double(baseMidi) - 69.0) / 12.0)
         
-        // Auto mode: find closest note absolutely
-        if isAutoMode {
-            let A4 = 440.0
-            let midi = 69.0 + 12.0 * log2(audioEngine.detectedFrequency / A4)
-            let nearest = Int(round(midi))
-            let nameIndex = posMod(nearest, 12)
-            return noteNames[nameIndex]
+        // Semitone offset from selected note
+        let s = hzToSemitoneOffset(from: f0, to: detectedHz)
+        var k = Int(round(s))
+        var localCents = 100.0 * (s - Double(k))
+        
+        // Keep cents in [-50, +50] range
+        if localCents <= -50.0 {
+            k -= 1
+            localCents += 100.0
+        }
+        if localCents > 50.0 {
+            k += 1
+            localCents -= 100.0
         }
         
-        // Manual mode: Use needle position to determine note
-        guard let selectedNote = currentStrings[safe: selectedString] else { return "--" }
+        let labelIndex = posMod(baseNoteIndex + k, 12)
+        let name = NOTE_NAMES_SHARP[labelIndex]
+        return (name, localCents)
+    }
+    
+    private var displayedNote: String {
+        let freq = audioEngine.detectedFrequency
+        guard freq > 0 else { return "--" }
         
-        // Get note index for selected string
-        let noteMap: [String: Int] = ["C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11]
-        guard let baseNoteIndex = noteMap[selectedNote.note] else { return "--" }
-        
-        // Use needle position instead of frequency
-        // Needle position is in degrees, where each semitone ≈ 9 degrees (since ±45° = ±5 semitones)
-        let semitonesFromCenter = Int(round(currentNeedlePosition / 9.0))
-        
-        // Calculate label index based on needle position
-        let labelIndex = posMod(baseNoteIndex + semitonesFromCenter, 12)
-        
-        return noteNames[labelIndex]
+        if isAutoMode {
+            // Auto mode: find closest note absolutely
+            let A4 = 440.0
+            let midi = 69.0 + 12.0 * log2(freq / A4)
+            let nearest = Int(round(midi))
+            let nameIndex = posMod(nearest, 12)
+            return NOTE_NAMES_SHARP[nameIndex]
+        } else {
+            // Manual mode: relative to selected note
+            guard let gs = currentStrings[safe: selectedString] else { return "--" }
+            let noteMap: [String: Int] = ["C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11]
+            guard let baseIndex = noteMap[gs.note] else { return "--" }
+            
+            let (name, _) = manualDisplay(detectedHz: freq,
+                                         baseNoteIndex: baseIndex,
+                                         baseOctave: gs.octave,
+                                         a4: 440.0)
+            return name
+        }
     }
     
     var body: some View {
@@ -88,7 +120,7 @@ struct ContentView: View {
                         // Display detected note or selected note
                         VStack(spacing: 4) {
                             if isListening {
-                                Text(detectedNote)
+                                Text(displayedNote)
                                     .font(.system(size: 36, weight: .bold))
                                     .foregroundColor(.primary)
                                 
@@ -197,7 +229,7 @@ struct ContentView: View {
         .onChange(of: audioEngine.detectedFrequency) { _, newValue in
             // Store last detected note
             if newValue > 0 {
-                lastDetectedNote = detectedNote
+                lastDetectedNote = displayedNote
             }
             
             // Auto select string if in auto mode

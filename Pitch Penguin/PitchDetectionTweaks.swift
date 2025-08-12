@@ -71,6 +71,34 @@ final class Stabilizer {
         return sorted[sorted.count/2]
     }
     
+    func addSample(_ hz: Double) {
+        guard hz > 0 else {
+            last5.removeAll()
+            return
+        }
+        last5.append(hz)
+        if last5.count > 5 {
+            last5.removeFirst()
+        }
+    }
+    
+    func getStableFrequency() -> Double? {
+        guard last5.count >= 3 else { return nil }
+        
+        // Use median for stability
+        let sorted = last5.sorted()
+        let median = sorted[sorted.count / 2]
+        
+        // Check if values are consistent (within 5% of median)
+        let consistent = last5.allSatisfy { abs($0 - median) / median < 0.05 }
+        
+        return consistent ? median : nil
+    }
+    
+    func reset() {
+        last5.removeAll()
+    }
+    
     func allowNoteChange(current: Double, target: Double) -> Bool {
         guard current > 0 else { return true }
         let cents = 1200.0 * log2(target / current)
