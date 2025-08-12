@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		0E033B3A2E4B2D38005BFEEF /* AudioKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0E033B392E4B2D38005BFEEF /* AudioKit */; };
+		0E033B3D2E4B2D81005BFEEF /* SoundpipeAudioKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0E033B3C2E4B2D81005BFEEF /* SoundpipeAudioKit */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		0E7CE9C72E45D4FC003CF408 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -24,6 +29,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0E033B332E4B2C30005BFEEF /* CoreAudioKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreAudioKit.framework; path = System/Library/Frameworks/CoreAudioKit.framework; sourceTree = SDKROOT; };
 		0E7CE9B72E45D4FA003CF408 /* Pitch Penguin.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Pitch Penguin.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		0E7CE9C62E45D4FC003CF408 /* Pitch PenguinTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Pitch PenguinTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		0E7CE9D02E45D4FC003CF408 /* Pitch PenguinUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Pitch PenguinUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -52,6 +58,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0E033B3A2E4B2D38005BFEEF /* AudioKit in Frameworks */,
+				0E033B3D2E4B2D81005BFEEF /* SoundpipeAudioKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -72,12 +80,21 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		0E033B322E4B2C30005BFEEF /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				0E033B332E4B2C30005BFEEF /* CoreAudioKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		0E7CE9AE2E45D4FA003CF408 = {
 			isa = PBXGroup;
 			children = (
 				0E7CE9B92E45D4FA003CF408 /* Pitch Penguin */,
 				0E7CE9C92E45D4FC003CF408 /* Pitch PenguinTests */,
 				0E7CE9D32E45D4FC003CF408 /* Pitch PenguinUITests */,
+				0E033B322E4B2C30005BFEEF /* Frameworks */,
 				0E7CE9B82E45D4FA003CF408 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -112,6 +129,8 @@
 			);
 			name = "Pitch Penguin";
 			packageProductDependencies = (
+				0E033B392E4B2D38005BFEEF /* AudioKit */,
+				0E033B3C2E4B2D81005BFEEF /* SoundpipeAudioKit */,
 			);
 			productName = "Pitch Penguin";
 			productReference = 0E7CE9B72E45D4FA003CF408 /* Pitch Penguin.app */;
@@ -195,6 +214,10 @@
 			);
 			mainGroup = 0E7CE9AE2E45D4FA003CF408;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				0E033B382E4B2D21005BFEEF /* XCRemoteSwiftPackageReference "AudioKit" */,
+				0E033B3B2E4B2D68005BFEEF /* XCRemoteSwiftPackageReference "SoundpipeAudioKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0E7CE9B82E45D4FA003CF408 /* Products */;
 			projectDirPath = "";
@@ -564,6 +587,38 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		0E033B382E4B2D21005BFEEF /* XCRemoteSwiftPackageReference "AudioKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/AudioKit/AudioKit";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.6.5;
+			};
+		};
+		0E033B3B2E4B2D68005BFEEF /* XCRemoteSwiftPackageReference "SoundpipeAudioKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/AudioKit/SoundpipeAudioKit";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.7.3;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0E033B392E4B2D38005BFEEF /* AudioKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0E033B382E4B2D21005BFEEF /* XCRemoteSwiftPackageReference "AudioKit" */;
+			productName = AudioKit;
+		};
+		0E033B3C2E4B2D81005BFEEF /* SoundpipeAudioKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0E033B3B2E4B2D68005BFEEF /* XCRemoteSwiftPackageReference "SoundpipeAudioKit" */;
+			productName = SoundpipeAudioKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 0E7CE9AF2E45D4FA003CF408 /* Project object */;
 }

@@ -20,7 +20,9 @@ struct ContentView: View {
     @State private var lastDetectedNote: String = ""
     @State private var currentNeedlePosition: Double = 0  // Track needle position
     
-    @StateObject private var audioEngine = AudioEngine()
+    // @StateObject private var audioEngine = AudioEngine()
+    // @StateObject private var audioEngine = AudioKitTuner()
+    @StateObject private var audioEngine = SimplePitchDetector()
     
     private var currentTuning: Tuning {
         let tunings = TuningData.getTunings(for: selectedInstrument)
@@ -34,6 +36,16 @@ struct ContentView: View {
     // MARK: - Note helpers
     private let NOTE_NAMES_SHARP = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"]
     
+    // Comprehensive note index mapping for all notations
+    private let NOTE_INDEX: [String: Int] = [
+        "C": 0, "C#": 1, "C♯": 1, "Db": 1, "D♭": 1,
+        "D": 2, "D#": 3, "D♯": 3, "Eb": 3, "E♭": 3,
+        "E": 4, "F": 5, "F#": 6, "F♯": 6, "Gb": 6, "G♭": 6,
+        "G": 7, "G#": 8, "G♯": 8, "Ab": 8, "A♭": 8,
+        "A": 9, "A#": 10, "A♯": 10, "Bb": 10, "B♭": 10,
+        "B": 11
+    ]
+    
     private func posMod(_ x: Int, _ m: Int) -> Int {
         let r = x % m
         return r >= 0 ? r : r + m
@@ -45,10 +57,12 @@ struct ContentView: View {
     
     /// Manual mode display calculation
     private func manualDisplay(detectedHz: Double,
-                              baseNoteIndex: Int,
+                              baseNote: String,
                               baseOctave: Int,
                               a4: Double = 440.0) -> (name: String, cents: Double) {
-        guard detectedHz > 0 else { return (NOTE_NAMES_SHARP[baseNoteIndex], 0) }
+        guard detectedHz > 0, let baseNoteIndex = NOTE_INDEX[baseNote] else { 
+            return ("--", 0) 
+        }
         
         // Calculate base frequency
         let baseMidi = 12 * (baseOctave + 1) + baseNoteIndex
@@ -56,6 +70,12 @@ struct ContentView: View {
         
         // Semitone offset from selected note
         let s = hzToSemitoneOffset(from: f0, to: detectedHz)
+        
+        // Limit to ±12 semitones (one octave) from selected note
+        guard abs(s) <= 12 else {
+            return ("--", 0)
+        }
+        
         var k = Int(round(s))
         var localCents = 100.0 * (s - Double(k))
         
@@ -75,24 +95,27 @@ struct ContentView: View {
     }
     
     private var displayedNote: String {
-        let freq = audioEngine.detectedFrequency
+        let freq = Double(audioEngine.frequency)
         guard freq > 0 else { return "--" }
         
         if isAutoMode {
             // Auto mode: find closest note absolutely
             let A4 = 440.0
             let midi = 69.0 + 12.0 * log2(freq / A4)
+            
+            // Limit to reasonable range for guitar/bass (E1 to E6)
+            // E1 = MIDI 28, E6 = MIDI 88
+            guard midi >= 28 && midi <= 88 else { return "--" }
+            
             let nearest = Int(round(midi))
             let nameIndex = posMod(nearest, 12)
             return NOTE_NAMES_SHARP[nameIndex]
         } else {
             // Manual mode: relative to selected note
             guard let gs = currentStrings[safe: selectedString] else { return "--" }
-            let noteMap: [String: Int] = ["C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11]
-            guard let baseIndex = noteMap[gs.note] else { return "--" }
             
             let (name, _) = manualDisplay(detectedHz: freq,
-                                         baseNoteIndex: baseIndex,
+                                         baseNote: gs.note,
                                          baseOctave: gs.octave,
                                          a4: 440.0)
             return name
@@ -113,7 +136,7 @@ struct ContentView: View {
                 VStack(spacing: -80) {
                     ZStack {
                         TuningMeter(targetFrequency: currentStrings[safe: selectedString]?.frequency ?? 0,
-                                  currentFrequency: audioEngine.detectedFrequency,
+                                  currentFrequency: Double(audioEngine.frequency),
                                   needlePosition: $currentNeedlePosition)
                             .frame(height: 180)
                         
@@ -124,8 +147,8 @@ struct ContentView: View {
                                     .font(.system(size: 36, weight: .bold))
                                     .foregroundColor(.primary)
                                 
-                                if audioEngine.detectedFrequency > 0, let targetFreq = currentStrings[safe: selectedString]?.frequency {
-                                    let cents = 1200 * log2(audioEngine.detectedFrequency / targetFreq)
+                                if audioEngine.frequency > 0, let targetFreq = currentStrings[safe: selectedString]?.frequency {
+                                    let cents = 1200 * log2(Double(audioEngine.frequency) / targetFreq)
                                     Text(String(format: "%+.0f cents", cents))
                                         .font(.caption)
                                         .foregroundColor(.secondary)
@@ -164,7 +187,7 @@ struct ContentView: View {
                 
                 VStack {
                     if isListening {
-                        FrequencyDisplay(currentFrequency: audioEngine.detectedFrequency,
+                        FrequencyDisplay(currentFrequency: Double(audioEngine.frequency),
                                        targetFrequency: currentStrings[safe: selectedString]?.frequency ?? 0,
                                        isAutoMode: isAutoMode,
                                        needlePosition: currentNeedlePosition)
@@ -213,7 +236,7 @@ struct ContentView: View {
                 StringSelector(selectedString: $selectedString, 
                              strings: currentStrings,
                              accuracyStates: stringAccuracyStates,
-                             currentFrequency: audioEngine.detectedFrequency,
+                             currentFrequency: Double(audioEngine.frequency),
                              isDisabled: isAutoMode)
                     .padding(.horizontal)
                     .offset(y: -20)
@@ -226,22 +249,23 @@ struct ContentView: View {
                     .offset(y: -20)
             }
         }
-        .onChange(of: audioEngine.detectedFrequency) { _, newValue in
+        .onChange(of: audioEngine.frequency) { _, newValue in
+            let frequency = Double(newValue)
             // Store last detected note
-            if newValue > 0 {
+            if frequency > 0 {
                 lastDetectedNote = displayedNote
             }
             
             // Auto select string if in auto mode
-            if isAutoMode && newValue > 0 {
-                autoSelectString(frequency: newValue)
+            if isAutoMode && frequency > 0 {
+                autoSelectString(frequency: frequency)
             }
             
             // Update accuracy states for all strings
-            updateStringAccuracyStates(currentFrequency: newValue)
+            updateStringAccuracyStates(currentFrequency: frequency)
             
             if let targetFreq = currentStrings[safe: selectedString]?.frequency {
-                updatePenguinState(currentFrequency: newValue, targetFrequency: targetFreq)
+                updatePenguinState(currentFrequency: frequency, targetFrequency: targetFreq)
             }
         }
         .onChange(of: selectedInstrument) { _, _ in
@@ -267,17 +291,9 @@ struct ContentView: View {
         // Clear last detected note when starting
         lastDetectedNote = ""
         
-        audioEngine.requestMicrophonePermission { granted in
-            if granted {
-                audioEngine.startRecording()
-                DispatchQueue.main.async {
-                    self.isListening = true
-                }
-            } else {
-                DispatchQueue.main.async {
-                    self.showPermissionAlert = true
-                }
-            }
+        audioEngine.startRecording()
+        DispatchQueue.main.async {
+            self.isListening = true
         }
     }
     

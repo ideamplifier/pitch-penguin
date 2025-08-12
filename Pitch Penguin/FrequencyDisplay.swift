@@ -45,7 +45,7 @@ struct FrequencyDisplay: View {
     }
     
     private var statusColor: Color {
-        guard currentFrequency > 0 else { return .gray }
+        guard currentFrequency > 0 else { return Color(red: 0.055, green: 0.059, blue: 0.063) }  // 펭귄 검은색
         
         // Use needle position instead of cents
         let absPosition = abs(needlePosition)

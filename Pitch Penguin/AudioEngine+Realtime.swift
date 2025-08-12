@@ -61,21 +61,29 @@ extension AudioEngine {
         }
         let n = Int(buffer.frameLength)
         
-        // Process directly without ring buffer for simplicity
-        if n >= 2048 {
-            let frame = Array(UnsafeBufferPointer(start: ch, count: min(n, 2048)))
+        // Accumulate samples for better pitch detection
+        Static.ring.append(contentsOf: UnsafeBufferPointer(start: ch, count: n))
+        
+        // Process when we have enough samples (2048)
+        while Static.ring.count >= 2048 {
+            let frame = Array(Static.ring.prefix(2048))
             processRealtimeFrame(frame)
+            Static.ring.removeFirst(512) // 75% overlap
         }
     }
 
     private func processRealtimeFrame(_ mono: [Float]) {
+        // Skip band-pass filter for now - it's causing NaN
+        // let filtered = Static.bp.apply(mono)
+        let filtered = mono
+        
         // Enhanced noise filtering
         var rms: Float = 0
-        vDSP_rmsqv(mono, 1, &rms, vDSP_Length(mono.count))
+        vDSP_rmsqv(filtered, 1, &rms, vDSP_Length(filtered.count))
         
-        // Higher threshold for better noise rejection
-        if rms < 0.01 {  // Increased from 0.001
-            // Gradually decay to 0 instead of hard cut
+        // Lower threshold for testing
+        if rms < 0.0001 {  // Very low threshold
+            // Don't print every quiet signal
             DispatchQueue.main.async {
                 if self.detectedFrequency > 0 {
                     self.detectedFrequency *= 0.9
@@ -86,9 +94,11 @@ extension AudioEngine {
             }
             return
         }
+        
+        print("🎤 Processing signal with RMS: \(rms)")
 
         // Simple autocorrelation pitch detection
-        let hz = simpleAutocorrelation(data: mono)
+        let hz = simpleAutocorrelation(data: filtered)
         
         // Frequency validation
         if hz > 50 && hz < 2000 {  // Reasonable range for guitar
@@ -109,10 +119,11 @@ extension AudioEngine {
         let minFreq: Double = 80.0
         let maxFreq: Double = 800.0
         
-        let minPeriod = Int(sampleRate / maxFreq)
+        let minPeriod = max(1, Int(sampleRate / maxFreq))
         let maxPeriod = min(Int(sampleRate / minFreq), data.count / 2)
         
-        if data.count < minPeriod * 2 {
+        if data.count < 50 || minPeriod >= maxPeriod {
+            print("❌ Data too small or period range invalid")
             return 0.0
         }
         
@@ -140,8 +151,14 @@ extension AudioEngine {
         var power: Float = 0
         vDSP_measqv(data, 1, &power, vDSP_Length(data.count))
         
-        if bestPeriod > 0 && maxCorrelation > power * 0.3 {
-            return sampleRate / Double(bestPeriod)
+        // Reduce log spam
+        
+        if bestPeriod > 0 && maxCorrelation > power * 0.3 {  // Normal threshold
+            let freq = sampleRate / Double(bestPeriod)
+            if freq >= minFreq && freq <= maxFreq {
+                print("✅ Detected frequency: \(freq) Hz")
+                return freq
+            }
         }
         
         return 0.0

@@ -1,6 +1,6 @@
 import Accelerate
 
-struct BPFilter {
+class BPFilter {
     // 2차 HPF 80Hz + 2차 LPF 2.5kHz @ 48k
     var hpfCoeffs: [Double] = []
     var lpfCoeffs: [Double] = []
@@ -11,7 +11,7 @@ struct BPFilter {
         setupFilters()
     }
     
-    mutating func setupFilters() {
+    func setupFilters() {
         // Butterworth coefficients for 80Hz HPF @ 48kHz
         // Pre-calculated for performance
         hpfCoeffs = [0.9946, -1.9893, 0.9946, 1.9893, -0.9893]
@@ -21,7 +21,7 @@ struct BPFilter {
         lpfCoeffs = [0.0309, 0.0618, 0.0309, 1.4339, -0.5575]
     }
     
-    mutating func apply(_ x: [Float]) -> [Float] {
+    func apply(_ x: [Float]) -> [Float] {
         var y = [Float](repeating: 0, count: x.count)
         
         // Apply HPF
