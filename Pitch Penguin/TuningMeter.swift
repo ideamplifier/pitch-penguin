@@ -14,13 +14,12 @@ struct TuningMeter: View {
     @State private var animatedRotation: Double = 0
     @State private var previousRotation: Double = 0
     
+    // Use the unified needle mapper for consistent behavior
+    private let needleMapper = TuningNeedleMapper()
+    
     private var cents: Double {
         guard currentFrequency > 0 && targetFrequency > 0 else { return 0 }
         return 1200 * log2(currentFrequency / targetFrequency)
-    }
-    
-    private var targetRotation: Double {
-        return max(-45, min(45, cents / 50 * 45))
     }
     
     private var meterColor: Color {
@@ -67,15 +66,23 @@ struct TuningMeter: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .onAppear {
-            animatedRotation = targetRotation
+            animatedRotation = 0
         }
-        .onChange(of: targetRotation) { _, newValue in
-            // Physics-based smoothing for more natural movement
-            let diff = abs(newValue - animatedRotation)
+        .onChange(of: currentFrequency) { oldValue, newValue in
+            print("🎸 TuningMeter frequency changed: \(oldValue) -> \(newValue)")
             
-            // Use different animation speeds based on movement distance
-            withAnimation(diff > 20 ? .easeInOut(duration: 0.2) : .easeInOut(duration: 0.1)) {
-                animatedRotation = newValue
+            // Use the unified needle mapper for smooth, consistent movement
+            let newRotation = needleMapper.rotationDegrees(
+                currentHz: currentFrequency,
+                targetHz: targetFrequency,
+                previousDegrees: animatedRotation,
+                maxAngle: 45.0
+            )
+            
+            print("🎯 Needle rotation: \(animatedRotation) -> \(newRotation)")
+            
+            withAnimation(.linear(duration: 0.05)) {
+                animatedRotation = newRotation
             }
         }
     }

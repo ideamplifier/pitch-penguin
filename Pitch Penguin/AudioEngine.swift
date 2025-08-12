@@ -12,30 +12,30 @@ class AudioEngine: NSObject, ObservableObject {
     @Published var detectedFrequency: Double = 0.0
     @Published var isRecording = false
     
-    private var audioEngine: AVAudioEngine!
-    private var inputNode: AVAudioInputNode!
-    private var bus: Int = 0
+    internal var audioEngine: AVAudioEngine!
+    internal var inputNode: AVAudioInputNode!
+    internal var bus: Int = 0
     
-    private let bufferSize: UInt32 = 1024  // Reduced for smoother updates (~23ms)
-    private var sampleRate: Double = 44100.0
+    private let bufferSize: UInt32 = 4096  // Larger buffer for better accuracy
+    internal var sampleRate: Double = 44100.0
     
-    // Pitch stabilization - smaller buffer for faster response
+    // Pitch stabilization - minimal buffering for responsiveness
     private var frequencyBuffer: [Double] = []
-    private let bufferMaxSize = 5  // Slightly larger for stability
+    private let bufferMaxSize = 2  // Minimal buffering
     
     // Smooth frequency tracking
     private var smoothedFrequency: Double = 0.0
-    private let smoothingFactor: Double = 0.85  // EMA factor (0.8-0.95 for smooth movement)
+    private let smoothingFactor: Double = 0.3  // Light smoothing for responsiveness
     
     // Dynamic noise gate
-    private var noiseGateThreshold: Float = 0.005 // Initial value
+    private var noiseGateThreshold: Float = 0.001 // Low threshold for sensitivity
     private var noiseFloor: Float = 0.0
     private var noiseBuffer: [Float] = []
     private let noiseBufferSize = 50
     private let noiseMultiplier: Float = 3.5 // Adaptive threshold multiplier
     
     // Advanced pitch detection
-    private var hybridDetector: HybridPitchDetector?
+    internal var hybridDetector: HybridPitchDetector?
     private var lastConfidence: Float = 0.0
     
     // Performance optimization
@@ -50,6 +50,24 @@ class AudioEngine: NSObject, ObservableObject {
     private var adaptiveBufferSize: UInt32 = 1024
     private let lowFreqThreshold: Double = 150.0  // Below this, use larger buffer
     
+    // MARK: - Low-latency pipeline
+    private let processFrameCount = 2048
+    private let hopSize = 512 // 75% overlap
+    private var ring = [Float]()
+    private var bpFilter = BPFilter()
+    private var stabilizer = Stabilizer()
+    private let levelMeter = LiveLevelMeter()
+    
+    // Noise calibration (adaptive gate)
+    private var calibrated = false
+    private var noiseMean: Float = 0
+    private var noiseStd: Float = 0
+    private var calibSamples: [Float] = []
+    private let calibDurationFrames = 48_000 / 2 // 0.5s @ 48k
+    
+    // Smooth decay for no detection
+    private var lastDetectedFrequency: Double = 0
+    
     // Battery optimization
     private var silenceTimer: Timer?
     private var consecutiveSilentFrames = 0
@@ -57,6 +75,10 @@ class AudioEngine: NSObject, ObservableObject {
     
     // Debug counter
     private var debugCounter = 0
+    
+    // Test mode
+    private var testMode = false
+    private var testTimer: Timer?
     
     override init() {
         super.init()
@@ -70,42 +92,36 @@ class AudioEngine: NSObject, ObservableObject {
     }
     
     private func setupWindowFunction() {
-        windowFunction = [Float](repeating: 0, count: Int(bufferSize))
-        vDSP_hamm_window(&windowFunction, vDSP_Length(bufferSize), 0)
+        // Use larger size to accommodate any buffer size
+        windowFunction = [Float](repeating: 0, count: 4096)
+        vDSP_hamm_window(&windowFunction, vDSP_Length(4096), 0)
+        print("DEBUG: Window function initialized with size: \(windowFunction.count)")
     }
     
     func startRecording() {
+        // Prevent duplicate starts
+        if isRecording {
+            return
+        }
+        
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .measurement, options: [])
-            try session.setActive(true)
+            // Use new realtime input system
+            try startRealtimeInput()
             
-            // Get the default input format from the hardware
-            let inputFormat = inputNode.outputFormat(forBus: bus)
-            
-            // Use the input node's format directly to avoid mismatch
-            sampleRate = inputFormat.sampleRate
-            
-            // Initialize hybrid detector with correct sample rate
+            // Initialize hybrid detector with 48k sample rate
+            sampleRate = 48_000
             hybridDetector = HybridPitchDetector(sampleRate: sampleRate)
+            print("DEBUG: Hybrid detector initialized with sample rate: \(sampleRate)")
             
-            print("Input format: \(inputFormat)")
-            print("Sample rate: \(sampleRate)")
-            print("Channels: \(inputFormat.channelCount)")
-            
-            // Use adaptive buffer size
-            let currentBufferSize = adaptiveBufferSize > 0 ? adaptiveBufferSize : bufferSize
-            
-            // Install tap with the same format as the input node
-            inputNode.installTap(onBus: bus, bufferSize: currentBufferSize, format: inputFormat) { [weak self] buffer, _ in
-                self?.processAudioBuffer(buffer)
-            }
-            
-            audioEngine.prepare()
-            try audioEngine.start()
+            print("DEBUG: Audio engine started successfully!")
+            print("DEBUG: Is running: \(audioEngine.isRunning)")
             
             DispatchQueue.main.async {
                 self.isRecording = true
+                print("DEBUG: Recording started, isRecording = true")
+                
+                // Test mode disabled - use real audio
+                // self.startTestMode()
             }
         } catch {
             print("Failed to start recording: \(error)")
@@ -122,6 +138,8 @@ class AudioEngine: NSObject, ObservableObject {
             print("Failed to deactivate audio session: \(error)")
         }
         
+        stopTestMode()
+        
         DispatchQueue.main.async {
             self.isRecording = false
             self.detectedFrequency = 0.0
@@ -130,22 +148,27 @@ class AudioEngine: NSObject, ObservableObject {
     }
     
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
-        guard let channelData = buffer.floatChannelData else { return }
+        guard let channelData = buffer.floatChannelData else { 
+            print("DEBUG: No channel data")
+            return 
+        }
         let frameCount = Int(buffer.frameLength)
         let channelCount = Int(buffer.format.channelCount)
         
-        // Skip if already processing (prevent queue buildup)
-        guard processingSemaphore.wait(timeout: .now()) == .success else { return }
+        // Use all available frames for better accuracy
+        let processFrameCount = frameCount
         
-        // Process on background queue for better performance
-        processingQueue.async { [weak self] in
-            defer { self?.processingSemaphore.signal() }
+        // Debug counter
+        debugCounter += 1
+        if debugCounter % 20 == 0 {
+            print("DEBUG: Processing buffer - received frames: \(frameCount), processing: \(processFrameCount), channels: \(channelCount)")
+        }
         
         // Convert to mono if stereo
         var monoData: [Float]
         if channelCount > 1 {
-            monoData = [Float](repeating: 0, count: frameCount)
-            for i in 0..<frameCount {
+            monoData = [Float](repeating: 0, count: processFrameCount)
+            for i in 0..<processFrameCount {
                 var sum: Float = 0
                 for channel in 0..<channelCount {
                     sum += channelData[channel][i]
@@ -153,104 +176,73 @@ class AudioEngine: NSObject, ObservableObject {
                 monoData[i] = sum / Float(channelCount)
             }
         } else {
-            monoData = Array(UnsafeBufferPointer(start: channelData[0], count: frameCount))
+            monoData = Array(UnsafeBufferPointer(start: channelData[0], count: processFrameCount))
         }
         
         // Calculate signal power
         var signalPower: Float = 0
-        vDSP_measqv(monoData, 1, &signalPower, vDSP_Length(frameCount))
+        vDSP_measqv(monoData, 1, &signalPower, vDSP_Length(processFrameCount))
         signalPower = sqrt(signalPower)
         
-        // Update dynamic noise floor
-        self?.updateNoiseFloor(signalPower: signalPower)
-        
-        // Apply dynamic noise gate
-        let dynamicThreshold = max(self?.noiseGateThreshold ?? 0.005, (self?.noiseFloor ?? 0) * (self?.noiseMultiplier ?? 3.5))
-        
-        // Debug print - only occasionally to avoid performance impact
-        self?.debugCounter += 1
-        if (self?.debugCounter ?? 0) % 30 == 0 && signalPower > 0.001 {
-            print("Signal: \(signalPower), Noise floor: \(self?.noiseFloor ?? 0), Threshold: \(dynamicThreshold)")
+        // Debug signal power
+        if debugCounter % 20 == 0 {
+            print("DEBUG: Signal power: \(signalPower), threshold: \(noiseGateThreshold)")
         }
         
-        if signalPower < dynamicThreshold {
+        // Simple noise gate with fixed threshold
+        if signalPower < noiseGateThreshold {
+            if debugCounter % 20 == 0 {
+                print("DEBUG: Signal below threshold, skipping")
+            }
             DispatchQueue.main.async {
-                self?.detectedFrequency = 0.0
+                self.detectedFrequency = 0.0
             }
             return
         }
         
+        // Force some movement for testing
+        if signalPower > 0.0001 {
+            print("DEBUG: Processing signal with power: \(signalPower)")
+        }
+        
         // Apply high-pass filter to remove low frequency noise
-        guard let strongSelf = self else { return }
-        let filteredData = strongSelf.applyHighPassFilter(channelData: monoData, frameCount: frameCount)
+        let filteredData = applyHighPassFilter(channelData: monoData, frameCount: processFrameCount)
         
         // Apply window function
-        let windowedData = strongSelf.applyWindow(data: filteredData, frameCount: frameCount)
+        let windowedData = applyWindow(data: filteredData, frameCount: processFrameCount)
         
-        // Detect pitch with enhanced YIN
-        let yinFrequency = strongSelf.detectPitch(channelData: windowedData, frameCount: frameCount)
+        // Use YIN algorithm first for accuracy
+        let yinFreq = detectPitch(channelData: windowedData, frameCount: processFrameCount)
         
-        // Use enhanced hybrid detection with confidence scoring
-        let frequency: Double
-        if let detector = strongSelf.hybridDetector {
-            frequency = detector.detectPitch(data: windowedData, yinResult: yinFrequency)
-            
-            // Calculate harmonic confidence for better accuracy
-            if frequency > 0 {
-                let confidence = strongSelf.calculateHarmonicConfidence(frequency: frequency, data: windowedData)
-                strongSelf.lastConfidence = confidence
-                
-                // Debug output
-                if (strongSelf.debugCounter) % 30 == 0 {
-                    print("Frequency: \(frequency)Hz, Confidence: \(confidence)")
-                }
-                
-                // Apply comb filter for harmonic enhancement
-                let period = Int(strongSelf.sampleRate / frequency)
-                if period > 0 && period < frameCount / 2 {
-                    let _ = strongSelf.combFilter.apply(data: windowedData, fundamentalPeriod: period)
-                }
-                
-                // Only accept high confidence results
-                if confidence < 0.5 && yinFrequency > 0 {
-                    // Use YIN as fallback for low confidence
-                    self?.stabilizeFrequency(yinFrequency)
-                } else {
-                    self?.stabilizeFrequency(frequency)
-                }
-            } else {
-                DispatchQueue.main.async {
-                    self?.detectedFrequency = 0.0
-                    self?.frequencyBuffer.removeAll()
-                }
-            }
+        // Use hybrid detector for validation if available
+        var finalFrequency = yinFreq
+        if let hybrid = hybridDetector, yinFreq > 0 {
+            finalFrequency = hybrid.detectPitch(data: windowedData, yinResult: yinFreq)
+        }
+        
+        if debugCounter % 20 == 0 {
+            print("DEBUG: YIN: \(yinFreq) Hz, Final: \(finalFrequency) Hz")
+        }
+        
+        if finalFrequency > 0 {
+            print("DEBUG: Frequency detected: \(finalFrequency) Hz")
+            updateFrequency(finalFrequency)
         } else {
-            frequency = yinFrequency
-            if frequency > 0 {
-                self?.stabilizeFrequency(frequency)
+            // Try simple method as fallback
+            let simpleFreq = detectPitchSimple(channelData: windowedData, frameCount: processFrameCount)
+            if simpleFreq > 0 {
+                print("DEBUG: Simple method detected: \(simpleFreq) Hz")
+                updateFrequency(simpleFreq)
             } else {
+                if debugCounter % 20 == 0 {
+                    print("DEBUG: No frequency detected")
+                }
                 DispatchQueue.main.async {
-                    self?.detectedFrequency = 0.0
-                    self?.frequencyBuffer.removeAll()
+                    self.detectedFrequency = 0.0
+                    self.frequencyBuffer.removeAll()
                 }
             }
         }
-        
-        // Update adaptive buffer size based on detected frequency
-        self?.updateAdaptiveBufferSize(frequency: frequency)
-        
-        // Battery optimization: track silence
-        if frequency == 0 {
-            self?.consecutiveSilentFrames += 1
-            if self?.consecutiveSilentFrames ?? 0 > self?.silenceThreshold ?? 50 {
-                self?.enterLowPowerMode()
-            }
-        } else {
-            self?.consecutiveSilentFrames = 0
-            self?.exitLowPowerMode()
-        }
-        
-        } // End of processingQueue.async
     }
     
     private func applyHighPassFilter(channelData: [Float], frameCount: Int) -> [Float] {
@@ -281,68 +273,51 @@ class AudioEngine: NSObject, ObservableObject {
         return windowedData
     }
     
-    private func stabilizeFrequency(_ frequency: Double) {
-        frequencyBuffer.append(frequency)
-        
-        if frequencyBuffer.count > bufferMaxSize {
-            frequencyBuffer.removeFirst()
-        }
-        
-        // Remove outliers and calculate median
-        let sortedBuffer = frequencyBuffer.sorted()
-        let median: Double
-        
-        if sortedBuffer.count % 2 == 0 && sortedBuffer.count > 1 {
-            median = (sortedBuffer[sortedBuffer.count/2 - 1] + sortedBuffer[sortedBuffer.count/2]) / 2.0
-        } else if sortedBuffer.count > 0 {
-            median = sortedBuffer[sortedBuffer.count/2]
-        } else {
-            median = frequency
-        }
-        
-        // Apply exponential moving average for smooth transitions
+    private func updateFrequency(_ frequency: Double) {
+        // Simple exponential moving average
         if smoothedFrequency > 0 {
-            // EMA: new = α * current + (1-α) * previous
-            smoothedFrequency = smoothingFactor * median + (1 - smoothingFactor) * smoothedFrequency
-            
-            // Apply soft hysteresis (reduced from 3 to 1 cent for smoother movement)
-            let centsDiff = 1200 * log2(smoothedFrequency / self.detectedFrequency)
-            if abs(centsDiff) > 0.5 || self.detectedFrequency == 0 {
-                DispatchQueue.main.async {
-                    self.detectedFrequency = self.smoothedFrequency
-                }
-            }
+            smoothedFrequency = smoothingFactor * frequency + (1 - smoothingFactor) * smoothedFrequency
         } else {
-            smoothedFrequency = median
-            DispatchQueue.main.async {
-                self.detectedFrequency = median
-            }
+            smoothedFrequency = frequency
+        }
+        
+        print("DEBUG: Updating UI with frequency: \(smoothedFrequency)")
+        
+        // Direct update for immediate response
+        DispatchQueue.main.async {
+            self.detectedFrequency = self.smoothedFrequency
+            print("DEBUG: UI updated with: \(self.detectedFrequency)")
         }
     }
     
-    private func detectPitch(channelData: [Float], frameCount: Int) -> Double {
-        let threshold: Float = 0.12  // Optimized threshold for accuracy vs speed
-        let minFreq: Double = 65.0   // C2 for wider range
-        let maxFreq: Double = 500.0  // B4 + margin for harmonics
+    private func stabilizeFrequency(_ frequency: Double) {
+        // Kept for compatibility but simplified
+        updateFrequency(frequency)
+    }
+    
+    internal func detectPitch(channelData: [Float], frameCount: Int, minFreq: Double = 70.0, maxFreq: Double = 1200.0, threshold: Float = 0.12) -> Double {
+        // Updated parameters for better range
         
         let minPeriod = Int(sampleRate / maxFreq)
         let maxPeriod = min(Int(sampleRate / minFreq), frameCount / 2)
+        
+        // Ensure we have enough data
+        if frameCount < minPeriod * 2 {
+            return 0.0
+        }
         
         var yinBuffer = [Float](repeating: 0, count: maxPeriod)
         
         // Calculate autocorrelation with optimization
         for tau in 1..<maxPeriod {
             var sum: Float = 0
-            let limit = min(maxPeriod, frameCount - tau)
+            let limit = min(frameCount - tau, frameCount / 2)
             
-            // Use vDSP for faster calculation
-            var diff = [Float](repeating: 0, count: limit)
-            channelData.withUnsafeBufferPointer { channelPtr in
-                let offsetPtr = channelPtr.baseAddress!.advanced(by: tau)
-                vDSP_vsub(offsetPtr, 1, channelPtr.baseAddress!, 1, &diff, 1, vDSP_Length(limit))
+            // Simple difference calculation for reliability
+            for i in 0..<limit {
+                let diff = channelData[i] - channelData[i + tau]
+                sum += diff * diff
             }
-            vDSP_vsq(diff, 1, &diff, 1, vDSP_Length(limit))
-            vDSP_sve(diff, 1, &sum, vDSP_Length(limit))
             
             yinBuffer[tau] = sum
         }
@@ -398,8 +373,46 @@ class AudioEngine: NSObject, ObservableObject {
         let frequency = sampleRate / Double(betterTau)
         
         // Validate frequency is within expected range
-        if frequency >= minFreq && frequency <= maxFreq * 2 {
+        if frequency >= minFreq && frequency <= maxFreq {
             return frequency
+        }
+        
+        return 0.0
+    }
+    
+    private func detectPitchSimple(channelData: [Float], frameCount: Int) -> Double {
+        let minFreq: Double = 60.0
+        let maxFreq: Double = 800.0
+        
+        let minPeriod = Int(sampleRate / maxFreq)
+        let maxPeriod = min(Int(sampleRate / minFreq), frameCount - 1)
+        
+        if frameCount < minPeriod * 2 {
+            return 0.0
+        }
+        
+        // Find maximum autocorrelation
+        var maxCorrelation: Float = 0
+        var bestPeriod = 0
+        
+        for period in minPeriod..<maxPeriod {
+            var correlation: Float = 0
+            let count = frameCount - period
+            
+            for i in 0..<count {
+                correlation += channelData[i] * channelData[i + period]
+            }
+            
+            correlation = correlation / Float(count)
+            
+            if correlation > maxCorrelation {
+                maxCorrelation = correlation
+                bestPeriod = period
+            }
+        }
+        
+        if bestPeriod > 0 && maxCorrelation > 0.001 {  // 더 낮은 임계값
+            return sampleRate / Double(bestPeriod)
         }
         
         return 0.0
@@ -516,40 +529,11 @@ class AudioEngine: NSObject, ObservableObject {
         return min(1.0, harmonicScore / 1000.0)
     }
     
-    // MARK: - Adaptive Buffer Management
+    // MARK: - Adaptive Buffer Management (Disabled - using fixed tap)
     
     private func updateAdaptiveBufferSize(frequency: Double) {
-        guard frequency > 0 else { return }
-        
-        // Use larger buffer for low frequencies (better accuracy)
-        // Smaller buffer for high frequencies (faster response)
-        let newBufferSize: UInt32
-        if frequency < lowFreqThreshold {
-            newBufferSize = 2048  // ~46ms for low notes
-        } else if frequency < 300 {
-            newBufferSize = 1024  // ~23ms for mid notes
-        } else {
-            newBufferSize = 512   // ~11ms for high notes
-        }
-        
-        if adaptiveBufferSize != newBufferSize {
-            adaptiveBufferSize = newBufferSize
-            // Reinstall tap with new buffer size for immediate effect
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self, self.isRecording else { return }
-                
-                // Remove existing tap
-                self.inputNode.removeTap(onBus: self.bus)
-                
-                // Get the current input format
-                let inputFormat = self.inputNode.outputFormat(forBus: self.bus)
-                
-                // Reinstall with new buffer size using the same format
-                self.inputNode.installTap(onBus: self.bus, bufferSize: newBufferSize, format: inputFormat) { [weak self] buffer, _ in
-                    self?.processAudioBuffer(buffer)
-                }
-            }
-        }
+        // Disabled - tap size is now fixed at 1024 for low latency
+        // Adaptation happens internally via hopSize/processFrameCount
     }
     
     // MARK: - Battery Optimization
@@ -568,6 +552,128 @@ class AudioEngine: NSObject, ObservableObject {
         DispatchQueue.main.async { [weak self] in
             self?.silenceTimer?.invalidate()
             self?.silenceTimer = nil
+        }
+    }
+    
+    // MARK: - Test Mode
+    
+    private func startTestMode() {
+        testMode = true
+        var testFrequencies: [Double] = [82.41, 110.0, 146.83, 196.0, 246.94, 329.63] // E A D G B E
+        var currentIndex = 0
+        
+        testTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            
+            // Simulate frequency detection
+            let baseFreq = testFrequencies[currentIndex]
+            let variation = Double.random(in: -5...5) // Simulate slight variations
+            let testFreq = baseFreq + variation
+            
+            print("DEBUG TEST MODE: Simulating frequency: \(testFreq) Hz")
+            
+            DispatchQueue.main.async {
+                self.detectedFrequency = testFreq
+            }
+            
+            currentIndex = (currentIndex + 1) % testFrequencies.count
+        }
+    }
+    
+    private func stopTestMode() {
+        testMode = false
+        testTimer?.invalidate()
+        testTimer = nil
+    }
+    
+    // MARK: - Ring Buffer Processing
+    
+    // Tap 콜백이 호출하는 진입점: 링버퍼에 쌓고 2048/75% overlap로 처리
+    func ingest(buffer: AVAudioPCMBuffer) {
+        guard let ch = buffer.floatChannelData?[0] else { 
+            print("DEBUG: No channel data in buffer")
+            return 
+        }
+        let n = Int(buffer.frameLength)
+        ring.append(contentsOf: UnsafeBufferPointer(start: ch, count: n))
+
+        // 초기 0.5초 환경 노이즈 캘리브레이션
+        if !calibrated {
+            calibSamples.append(contentsOf: UnsafeBufferPointer(start: ch, count: n))
+            if calibSamples.count >= calibDurationFrames {
+                var mean: Float = 0, std: Float = 0
+                vDSP_normalize(calibSamples, 1, nil, 1, &mean, &std, vDSP_Length(calibSamples.count))
+                noiseMean = mean
+                noiseStd = max(std, 1e-7)
+                calibrated = true
+                calibSamples.removeAll(keepingCapacity: false)
+                print("Noise calibrated: μ=\(noiseMean), σ=\(noiseStd)")
+            }
+            return // Don't process during calibration
+        }
+
+        while ring.count >= processFrameCount {
+            let frame = Array(ring.prefix(processFrameCount))
+            processFrame(frame)
+            ring.removeFirst(hopSize)
+        }
+    }
+
+    // 1 프레임(2048 샘플) 처리: 게이트 → 밴드패스 → 윈도우 → YIN/MPM → 안정화
+    private func processFrame(_ monoData: [Float]) {
+        // Check signal level
+        var rms: Float = 0
+        vDSP_rmsqv(monoData, 1, &rms, vDSP_Length(monoData.count))
+        
+        // Very low threshold for testing
+        if rms < 0.00001 {
+            print("DEBUG: Signal too quiet: \(rms)")
+            DispatchQueue.main.async { self.detectedFrequency = 0 }
+            return
+        }
+        
+        print("DEBUG: RMS level: \(rms)")
+
+        // Skip band-pass filter for now - use original data
+        // let bandpassed = bpFilter.apply(monoData)
+        let bandpassed = monoData
+
+        // Hann window
+        var window = [Float](repeating: 0, count: bandpassed.count)
+        vDSP_hann_window(&window, vDSP_Length(bandpassed.count), Int32(vDSP_HANN_NORM))
+        var windowed = [Float](repeating: 0, count: bandpassed.count)
+        vDSP_vmul(bandpassed, 1, window, 1, &windowed, 1, vDSP_Length(bandpassed.count))
+
+        // YIN 파라미터 통일 (70–1200 Hz, threshold 0.12)
+        let yinHz = detectPitch(channelData: windowed,
+                                frameCount: processFrameCount,
+                                minFreq: 70.0,
+                                maxFreq: 1200.0,
+                                threshold: 0.12)
+        
+        print("DEBUG: YIN detected: \(yinHz) Hz")
+
+        var finalHz = yinHz
+        if let hybrid = hybridDetector, yinHz > 0 {
+            finalHz = hybrid.detectPitch(data: windowed, yinResult: yinHz)
+            print("DEBUG: Hybrid refined to: \(finalHz) Hz")
+        }
+
+        // Update level meter even if no pitch detected
+        levelMeter.update(from: bandpassed)
+        
+        let medHz = stabilizer.push(finalHz)
+        
+        if medHz > 0 {
+            lastDetectedFrequency = medHz
+            DispatchQueue.main.async { self.detectedFrequency = medHz }
+        } else {
+            // Smooth decay instead of immediate 0
+            lastDetectedFrequency *= 0.9
+            if lastDetectedFrequency < 20 {
+                lastDetectedFrequency = 0
+            }
+            DispatchQueue.main.async { self.detectedFrequency = self.lastDetectedFrequency }
         }
     }
 }

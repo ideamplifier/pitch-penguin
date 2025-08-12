@@ -157,6 +157,9 @@ struct ContentView: View {
     }
     
     private func startListening() {
+        // Check if already recording to prevent duplicate starts
+        guard !audioEngine.isRecording else { return }
+        
         audioEngine.requestMicrophonePermission { granted in
             if granted {
                 audioEngine.startRecording()
