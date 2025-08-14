@@ -159,6 +159,8 @@ class SimplePitchDetector: ObservableObject {
         
         return  // Skip the rest for now
         
+        // Code below is temporarily disabled for testing
+        /*
         if detectedFreq > 0 {
             // Add to buffer for stabilization
             frequencyBuffer.append(detectedFreq)
@@ -177,6 +179,7 @@ class SimplePitchDetector: ObservableObject {
                 }
             }
         }
+        */
     }
     
     private func autocorrelation(channelData: UnsafeMutablePointer<Float>, frameCount: Int) -> Float {
