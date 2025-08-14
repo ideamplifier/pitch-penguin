@@ -96,9 +96,9 @@ struct ContentView: View {
     
     private var displayedNote: String {
         let freq = Double(audioEngine.frequency)
-        guard freq > 0 else { return "--" }
         
         if isAutoMode {
+            guard freq > 0 else { return "--" }
             // Auto mode: find closest note absolutely
             let A4 = 440.0
             let midi = 69.0 + 12.0 * log2(freq / A4)
@@ -111,14 +111,9 @@ struct ContentView: View {
             let nameIndex = posMod(nearest, 12)
             return NOTE_NAMES_SHARP[nameIndex]
         } else {
-            // Manual mode: relative to selected note
+            // Manual mode: ALWAYS show the selected string's note
             guard let gs = currentStrings[safe: selectedString] else { return "--" }
-            
-            let (name, _) = manualDisplay(detectedHz: freq,
-                                         baseNote: gs.note,
-                                         baseOctave: gs.octave,
-                                         a4: 440.0)
-            return name
+            return gs.note  // Fixed note display
         }
     }
     

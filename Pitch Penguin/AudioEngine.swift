@@ -63,7 +63,7 @@ class AudioEngine: NSObject, ObservableObject {
     private var noiseMean: Float = 0
     private var noiseStd: Float = 0
     private var calibSamples: [Float] = []
-    private let calibDurationFrames = 48_000 / 2 // 0.5s @ 48k
+    private var calibDurationFrames = 44100 / 2 // 0.5s - will be updated based on actual sample rate
     
     // Smooth decay for no detection
     private var lastDetectedFrequency: Double = 0
@@ -108,8 +108,8 @@ class AudioEngine: NSObject, ObservableObject {
             // Use new realtime input system
             try startRealtimeInput()
             
-            // Initialize hybrid detector with 48k sample rate
-            sampleRate = 48_000
+            // Initialize hybrid detector with actual sample rate from audio format
+            // sampleRate is already set by startRealtimeInput()
             hybridDetector = HybridPitchDetector(sampleRate: sampleRate)
             print("DEBUG: Hybrid detector initialized with sample rate: \(sampleRate)")
             

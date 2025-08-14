@@ -19,9 +19,9 @@ extension AudioEngine {
         static var noiseMean: Float = 0
         static var noiseStd:  Float = 0
         static var calibSamples: [Float] = []
-        static var calibDurationFrames: Int = 48_000 / 2 // Will be updated based on actual sample rate
+        static var calibDurationFrames: Int = 44100 / 2 // Will be updated based on actual sample rate
         static var lastDetectedHz: Double = 0
-        static var bp = BPFilter()
+        static var adaptiveFilter: AdaptiveBandPassFilter? = nil
         static var stabilizer = Stabilizer()
     }
 
@@ -37,6 +37,9 @@ extension AudioEngine {
         // Use hardware's native format
         let format = inputNode.outputFormat(forBus: 0)
         sampleRate = format.sampleRate
+        
+        // Initialize adaptive filter with actual sample rate
+        Static.adaptiveFilter = AdaptiveBandPassFilter(sampleRate: sampleRate)
         
         // Update calibration duration based on actual sample rate
         Static.calibDurationFrames = Int(sampleRate / 2) // 0.5 seconds
@@ -73,9 +76,8 @@ extension AudioEngine {
     }
 
     private func processRealtimeFrame(_ mono: [Float]) {
-        // Skip band-pass filter for now - it's causing NaN
-        // let filtered = Static.bp.apply(mono)
-        let filtered = mono
+        // Apply adaptive band-pass filter
+        let filtered = Static.adaptiveFilter?.apply(mono) ?? mono
         
         // Enhanced noise filtering
         var rms: Float = 0

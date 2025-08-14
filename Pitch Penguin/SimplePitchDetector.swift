@@ -16,7 +16,9 @@ class SimplePitchDetector: ObservableObject {
     
     private var audioEngine: AVAudioEngine!
     private var inputNode: AVAudioInputNode!
-    private var sampleRate: Double = 48000.0
+    private var sampleRate: Double = 44100.0  // Default, will be updated from actual format
+    private var enhancedDetector: EnhancedPitchDetector?
+    private var noiseGate: AdaptiveNoiseGate?
     
     // Stabilization
     private var frequencyBuffer: [Float] = []
@@ -41,6 +43,12 @@ class SimplePitchDetector: ObservableObject {
             
             let format = inputNode.outputFormat(forBus: 0)
             sampleRate = format.sampleRate
+            
+            // Initialize enhanced detector with actual sample rate
+            enhancedDetector = EnhancedPitchDetector(sampleRate: sampleRate)
+            
+            // Initialize adaptive noise gate
+            noiseGate = AdaptiveNoiseGate(warmupDuration: 20)
             
             // Install tap with 4096 samples for better accuracy
             inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
@@ -72,6 +80,7 @@ class SimplePitchDetector: ObservableObject {
         frequency = 0
         amplitude = 0
         frequencyBuffer.removeAll()
+        noiseGate?.reset()
     }
     
     private func processBuffer(_ buffer: AVAudioPCMBuffer) {
@@ -82,8 +91,9 @@ class SimplePitchDetector: ObservableObject {
         var rms: Float = 0
         vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(frameCount))
         
-        // Only process if signal is strong enough
-        guard rms > 0.01 else {
+        // Use adaptive noise gate
+        guard let gate = noiseGate, gate.shouldPassSignal(rms: rms) else {
+            // Smooth decay when no signal
             DispatchQueue.main.async {
                 self.frequency *= 0.95
                 if self.frequency < 20 {
@@ -94,8 +104,9 @@ class SimplePitchDetector: ObservableObject {
             return
         }
         
-        // Use autocorrelation for pitch detection
-        let detectedFreq = autocorrelation(channelData: channelData, frameCount: frameCount)
+        // Use enhanced pitch detection
+        let floatData = Array(UnsafeBufferPointer(start: channelData, count: frameCount))
+        let detectedFreq = Float(enhancedDetector?.detectPitch(data: floatData) ?? 0)
         
         if detectedFreq > 0 {
             // Add to buffer for stabilization
