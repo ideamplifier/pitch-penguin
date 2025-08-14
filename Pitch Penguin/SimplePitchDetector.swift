@@ -26,6 +26,30 @@ class SimplePitchDetector: ObservableObject {
     
     init() {
         setupAudio()
+        
+        #if DEBUG
+        // GPT의 UI 테스트 - 바늘이 실제로 움직이는지 확인
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            print("🧪 Starting UI test - needle should move!")
+            var testAngle = 0.0
+            Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
+                testAngle += 30
+                if testAngle > 300 { testAngle = 80 }
+                
+                // Simulate frequency change to test needle
+                let testFreq = Float(testAngle)
+                self.frequency = testFreq
+                self.amplitude = 0.1
+                print("🧪 Test: Setting frequency to \(testFreq) Hz")
+                
+                // Stop test after 10 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                    timer.invalidate()
+                    print("🧪 UI test completed")
+                }
+            }
+        }
+        #endif
     }
     
     private func setupAudio() {
@@ -122,10 +146,9 @@ class SimplePitchDetector: ObservableObject {
             print("📊 Signal check - RMS: \(rms), MAX: \(maxValue)")
         }
         
-        // TEMPORARILY BYPASS GATE for testing
-        let bypassGate = true  // 임시로 게이트 완전 해제
-        
-        if !bypassGate && rms < 0.001 {  // Very low fixed threshold
+        // Check if signal is too weak (likely ambient noise)
+        if rms < 0.0005 {  // Lower threshold since we're seeing 0.0006-0.0009
+            // Signal too weak, likely just noise
             DispatchQueue.main.async {
                 self.frequency *= 0.95
                 if self.frequency < 20 {
@@ -141,7 +164,7 @@ class SimplePitchDetector: ObservableObject {
             print("📊 RMS: \(rms)")
         }
         
-        // Re-enable stabilization for better results
+        // Simple direct update for immediate response
         let detectedFreq = autocorrelation(channelData: channelData, frameCount: frameCount)
         
         if detectedFreq > 0 {
@@ -151,26 +174,34 @@ class SimplePitchDetector: ObservableObject {
                 frequencyBuffer.removeFirst()
             }
             
-            // Use median for stability
-            if frequencyBuffer.count >= 3 {
+            // Use median for stability but update more frequently
+            if frequencyBuffer.count >= 2 {  // Reduced from 3
                 let sorted = frequencyBuffer.sorted()
                 let median = sorted[sorted.count / 2]
                 
-                // Check if values are consistent (within 10% of median)
-                let consistent = frequencyBuffer.allSatisfy { 
-                    abs($0 - median) / median < 0.1 
-                }
-                
-                if consistent {
-                    print("🎸 Stable detection: \(median) Hz (from \(frequencyBuffer.count) samples)")
-                    DispatchQueue.main.async {
-                        self.frequency = median
-                        self.amplitude = rms
+                // Update UI on main thread - GPT의 핵심 지적사항
+                DispatchQueue.main.async {
+                    // Ensure we're on main thread for UI updates
+                    precondition(Thread.isMainThread, "UI update not on main thread!")
+                    
+                    self.frequency = median
+                    self.amplitude = rms
+                    
+                    // Debug log to verify UI update
+                    if self.tapCallCount % 10 == 0 {
+                        print("✅ UI Updated: freq=\(median) Hz, amp=\(rms)")
                     }
                 }
             }
-        } else if tapCallCount % 30 == 0 {
-            print("⚠️ No frequency detected")
+        } else {
+            // Gradual decay when no signal
+            DispatchQueue.main.async {
+                self.frequency *= 0.95
+                if self.frequency < 20 {
+                    self.frequency = 0
+                }
+                self.amplitude *= 0.95
+            }
         }
         
         return  // Skip the rest for now
@@ -233,7 +264,7 @@ class SimplePitchDetector: ObservableObject {
         vDSP_measqv(channelData, 1, &power, vDSP_Length(frameCount))
         
         // Only return frequency if correlation is strong enough
-        if bestPeriod > 0 && maxCorrelation > power * 0.5 {  // Raised threshold to filter noise
+        if bestPeriod > 0 && maxCorrelation > power * 0.3 {  // Balanced threshold
             let frequency = Float(sampleRate) / Float(bestPeriod)
             
             // Validate frequency range
