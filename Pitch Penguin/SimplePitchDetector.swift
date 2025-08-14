@@ -44,15 +44,27 @@ class SimplePitchDetector: ObservableObject {
             let format = inputNode.outputFormat(forBus: 0)
             sampleRate = format.sampleRate
             
+            print("🎛 Initial format - SR: \(sampleRate), Channels: \(format.channelCount)")
+            
             // Initialize enhanced detector with actual sample rate
             enhancedDetector = EnhancedPitchDetector(sampleRate: sampleRate)
             
             // Initialize adaptive noise gate with shorter warmup
             noiseGate = AdaptiveNoiseGate(warmupDuration: 5)  // Reduced for faster response
             
-            // Install tap with 4096 samples for better accuracy
-            inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
-                self?.processBuffer(buffer)
+            // Install tap with nil format to let system choose
+            inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, _ in
+                guard let self = self else { return }
+                
+                // Update sample rate if different
+                let actualSR = buffer.format.sampleRate
+                if self.sampleRate != actualSR {
+                    print("🔄 Sample rate mismatch! Updating from \(self.sampleRate) to \(actualSR)")
+                    self.sampleRate = actualSR
+                    self.enhancedDetector = EnhancedPitchDetector(sampleRate: actualSR)
+                }
+                
+                self.processBuffer(buffer)
             }
             
             try audioEngine.start()
@@ -83,16 +95,37 @@ class SimplePitchDetector: ObservableObject {
         noiseGate?.reset()
     }
     
+    private var tapCallCount = 0
+    
     private func processBuffer(_ buffer: AVAudioPCMBuffer) {
-        guard let channelData = buffer.floatChannelData?[0] else { return }
+        // Debug: 탭 콜백 확인
+        tapCallCount += 1
+        if tapCallCount % 30 == 0 {
+            print("🎤 TAP OK: \(tapCallCount) calls, SR=\(buffer.format.sampleRate), CH=\(buffer.format.channelCount)")
+        }
+        
+        guard let channelData = buffer.floatChannelData?[0] else { 
+            print("❌ No channel data!")
+            return 
+        }
         let frameCount = Int(buffer.frameLength)
         
         // Calculate RMS for amplitude
         var rms: Float = 0
         vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(frameCount))
         
-        // Simple threshold for now - noise gate was blocking signal
-        if rms < 0.001 {  // Very low fixed threshold
+        // Check max value to see if we have signal
+        var maxValue: Float = 0
+        vDSP_maxmgv(channelData, 1, &maxValue, vDSP_Length(frameCount))
+        
+        if tapCallCount % 30 == 0 {
+            print("📊 Signal check - RMS: \(rms), MAX: \(maxValue)")
+        }
+        
+        // TEMPORARILY BYPASS GATE for testing
+        let bypassGate = true  // 임시로 게이트 완전 해제
+        
+        if !bypassGate && rms < 0.001 {  // Very low fixed threshold
             DispatchQueue.main.async {
                 self.frequency *= 0.95
                 if self.frequency < 20 {
@@ -108,19 +141,23 @@ class SimplePitchDetector: ObservableObject {
             print("📊 RMS: \(rms)")
         }
         
-        // Use enhanced pitch detection
-        let floatData = Array(UnsafeBufferPointer(start: channelData, count: frameCount))
-        var detectedFreq = Float(enhancedDetector?.detectPitch(data: floatData) ?? 0)
+        // SIMPLE TEST: Use only basic autocorrelation first
+        let detectedFreq = autocorrelation(channelData: channelData, frameCount: frameCount)
         
-        // Fallback to simple autocorrelation if enhanced detection fails
-        if detectedFreq == 0 {
-            detectedFreq = autocorrelation(channelData: channelData, frameCount: frameCount)
-            if detectedFreq > 0 {
-                print("🎸 Fallback detection: \(detectedFreq) Hz")
+        if detectedFreq > 0 {
+            print("🎸 Simple detection: \(detectedFreq) Hz")
+            
+            // Direct UI update for testing
+            DispatchQueue.main.async {
+                self.frequency = detectedFreq
+                self.amplitude = rms
+                print("✅ UI Updated: \(detectedFreq) Hz")
             }
-        } else {
-            print("🎵 Enhanced detection: \(detectedFreq) Hz")
+        } else if tapCallCount % 30 == 0 {
+            print("⚠️ No frequency detected")
         }
+        
+        return  // Skip the rest for now
         
         if detectedFreq > 0 {
             // Add to buffer for stabilization
@@ -176,14 +213,19 @@ class SimplePitchDetector: ObservableObject {
         var power: Float = 0
         vDSP_measqv(channelData, 1, &power, vDSP_Length(frameCount))
         
-        // Only return frequency if correlation is strong enough
-        if bestPeriod > 0 && maxCorrelation > power * 0.3 {
+        // Only return frequency if correlation is strong enough (lowered threshold for testing)
+        if bestPeriod > 0 && maxCorrelation > power * 0.1 {  // Much lower threshold
             let frequency = Float(sampleRate) / Float(bestPeriod)
             
             // Validate frequency range
             if frequency >= minFreq && frequency <= maxFreq {
+                print("🔍 Autocorr found: period=\(bestPeriod), freq=\(frequency), corr=\(maxCorrelation), power=\(power)")
                 return frequency
+            } else {
+                print("⚠️ Frequency out of range: \(frequency) Hz")
             }
+        } else if bestPeriod > 0 {
+            print("⚠️ Correlation too weak: \(maxCorrelation) vs \(power * 0.1)")
         }
         
         return 0
