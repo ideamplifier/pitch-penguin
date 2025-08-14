@@ -18,8 +18,8 @@ class AdaptiveNoiseGate {
     private var sampleCount: Double = 0
     
     // Gate parameters
-    private let sigmaMultiplier: Double = 3.5  // How many standard deviations above noise
-    private var threshold: Double = 0.001  // Initial threshold
+    private let sigmaMultiplier: Double = 2.0  // Reduced for better sensitivity
+    private var threshold: Double = 0.0001  // Much lower initial threshold
     private var isCalibrated = false
     
     // Smooth transition
@@ -83,8 +83,8 @@ class AdaptiveNoiseGate {
         // Set threshold as mean + (multiplier * standard deviation)
         threshold = noiseMean + (sigmaMultiplier * standardDeviation)
         
-        // Ensure minimum threshold
-        threshold = max(threshold, 0.0001)
+        // Ensure minimum threshold - very low for guitar
+        threshold = max(threshold, 0.00001)
     }
     
     /// Reset calibration (useful when environment changes)

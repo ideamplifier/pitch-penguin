@@ -89,8 +89,8 @@ class EnhancedPitchDetector {
         var power: Float = 0
         vDSP_measqv(data, 1, &power, vDSP_Length(data.count))
         
-        // Only accept if correlation is strong enough
-        guard maxValue > power * 0.3 else { return nil }
+        // Only accept if correlation is strong enough (lowered threshold)
+        guard maxValue > power * 0.2 else { return nil }
         
         // Apply parabolic interpolation for sub-sample accuracy
         let refinedPeriod = parabolicRefine(acf, at: maxIndex)
@@ -105,7 +105,7 @@ class EnhancedPitchDetector {
     // MARK: - YIN Algorithm with Refinement
     
     /// Enhanced YIN algorithm with parabolic interpolation
-    func enhancedYIN(data: [Float], threshold: Float = 0.12) -> Double? {
+    func enhancedYIN(data: [Float], threshold: Float = 0.15) -> Double? {  // Slightly higher threshold for stability
         let minFreq = 70.0
         let maxFreq = 1200.0
         

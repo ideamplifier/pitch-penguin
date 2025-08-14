@@ -20,8 +20,7 @@ struct ContentView: View {
     @State private var lastDetectedNote: String = ""
     @State private var currentNeedlePosition: Double = 0  // Track needle position
     
-    // @StateObject private var audioEngine = AudioEngine()
-    // @StateObject private var audioEngine = AudioKitTuner()
+    // Audio engine selection
     @StateObject private var audioEngine = SimplePitchDetector()
     
     private var currentTuning: Tuning {

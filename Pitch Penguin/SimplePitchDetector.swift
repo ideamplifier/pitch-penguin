@@ -47,8 +47,8 @@ class SimplePitchDetector: ObservableObject {
             // Initialize enhanced detector with actual sample rate
             enhancedDetector = EnhancedPitchDetector(sampleRate: sampleRate)
             
-            // Initialize adaptive noise gate
-            noiseGate = AdaptiveNoiseGate(warmupDuration: 20)
+            // Initialize adaptive noise gate with shorter warmup
+            noiseGate = AdaptiveNoiseGate(warmupDuration: 5)  // Reduced for faster response
             
             // Install tap with 4096 samples for better accuracy
             inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
@@ -91,9 +91,8 @@ class SimplePitchDetector: ObservableObject {
         var rms: Float = 0
         vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(frameCount))
         
-        // Use adaptive noise gate
-        guard let gate = noiseGate, gate.shouldPassSignal(rms: rms) else {
-            // Smooth decay when no signal
+        // Simple threshold for now - noise gate was blocking signal
+        if rms < 0.001 {  // Very low fixed threshold
             DispatchQueue.main.async {
                 self.frequency *= 0.95
                 if self.frequency < 20 {
@@ -104,9 +103,24 @@ class SimplePitchDetector: ObservableObject {
             return
         }
         
+        // Log RMS for debugging
+        if rms > 0.01 {
+            print("📊 RMS: \(rms)")
+        }
+        
         // Use enhanced pitch detection
         let floatData = Array(UnsafeBufferPointer(start: channelData, count: frameCount))
-        let detectedFreq = Float(enhancedDetector?.detectPitch(data: floatData) ?? 0)
+        var detectedFreq = Float(enhancedDetector?.detectPitch(data: floatData) ?? 0)
+        
+        // Fallback to simple autocorrelation if enhanced detection fails
+        if detectedFreq == 0 {
+            detectedFreq = autocorrelation(channelData: channelData, frameCount: frameCount)
+            if detectedFreq > 0 {
+                print("🎸 Fallback detection: \(detectedFreq) Hz")
+            }
+        } else {
+            print("🎵 Enhanced detection: \(detectedFreq) Hz")
+        }
         
         if detectedFreq > 0 {
             // Add to buffer for stabilization
