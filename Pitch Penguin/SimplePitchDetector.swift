@@ -141,17 +141,33 @@ class SimplePitchDetector: ObservableObject {
             print("📊 RMS: \(rms)")
         }
         
-        // SIMPLE TEST: Use only basic autocorrelation first
+        // Re-enable stabilization for better results
         let detectedFreq = autocorrelation(channelData: channelData, frameCount: frameCount)
         
         if detectedFreq > 0 {
-            print("🎸 Simple detection: \(detectedFreq) Hz")
+            // Add to buffer for stabilization
+            frequencyBuffer.append(detectedFreq)
+            if frequencyBuffer.count > bufferSize {
+                frequencyBuffer.removeFirst()
+            }
             
-            // Direct UI update for testing
-            DispatchQueue.main.async {
-                self.frequency = detectedFreq
-                self.amplitude = rms
-                print("✅ UI Updated: \(detectedFreq) Hz")
+            // Use median for stability
+            if frequencyBuffer.count >= 3 {
+                let sorted = frequencyBuffer.sorted()
+                let median = sorted[sorted.count / 2]
+                
+                // Check if values are consistent (within 10% of median)
+                let consistent = frequencyBuffer.allSatisfy { 
+                    abs($0 - median) / median < 0.1 
+                }
+                
+                if consistent {
+                    print("🎸 Stable detection: \(median) Hz (from \(frequencyBuffer.count) samples)")
+                    DispatchQueue.main.async {
+                        self.frequency = median
+                        self.amplitude = rms
+                    }
+                }
             }
         } else if tapCallCount % 30 == 0 {
             print("⚠️ No frequency detected")
@@ -216,19 +232,22 @@ class SimplePitchDetector: ObservableObject {
         var power: Float = 0
         vDSP_measqv(channelData, 1, &power, vDSP_Length(frameCount))
         
-        // Only return frequency if correlation is strong enough (lowered threshold for testing)
-        if bestPeriod > 0 && maxCorrelation > power * 0.1 {  // Much lower threshold
+        // Only return frequency if correlation is strong enough
+        if bestPeriod > 0 && maxCorrelation > power * 0.5 {  // Raised threshold to filter noise
             let frequency = Float(sampleRate) / Float(bestPeriod)
             
             // Validate frequency range
             if frequency >= minFreq && frequency <= maxFreq {
-                print("🔍 Autocorr found: period=\(bestPeriod), freq=\(frequency), corr=\(maxCorrelation), power=\(power)")
+                // Only log significant detections
+                if maxCorrelation > power * 0.7 {
+                    print("🔍 Strong signal: \(frequency) Hz (corr: \(maxCorrelation/power))")
+                }
                 return frequency
             } else {
-                print("⚠️ Frequency out of range: \(frequency) Hz")
+                // Frequency out of range
             }
         } else if bestPeriod > 0 {
-            print("⚠️ Correlation too weak: \(maxCorrelation) vs \(power * 0.1)")
+            // Correlation too weak
         }
         
         return 0
