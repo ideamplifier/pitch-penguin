@@ -11,6 +11,7 @@ struct TuningMeter: View {
     let targetFrequency: Double
     let currentFrequency: Double
     @Binding var needlePosition: Double
+    var directCents: Double? = nil  // Direct cents from AudioKit
     
     @State private var animatedRotation: Double = 0
     @State private var previousRotation: Double = 0
@@ -19,6 +20,11 @@ struct TuningMeter: View {
     private let needleMapper = TuningNeedleMapper()
     
     private var cents: Double {
+        // Use direct cents if provided (from AudioKit which knows the actual detected note)
+        if let directCents = directCents {
+            return directCents
+        }
+        // Fallback to frequency comparison
         guard currentFrequency > 0 && targetFrequency > 0 else { return 0 }
         return 1200 * log2(currentFrequency / targetFrequency)
     }
