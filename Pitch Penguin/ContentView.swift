@@ -22,8 +22,8 @@ struct ContentView: View {
     @State private var autoSelectDebounceTimer: Timer?
     @State private var pendingAutoSelect: Int?
     
-    // Audio engine selection - Using AudioKit proven library
-    @StateObject private var audioEngine = AudioKitTunerEngine()
+    // Audio engine selection - Using proven AudioKit PitchTap
+    @StateObject private var audioEngine = AudioKitPitchTuner()
     
     private var currentTuning: Tuning {
         let tunings = TuningData.getTunings(for: selectedInstrument)
