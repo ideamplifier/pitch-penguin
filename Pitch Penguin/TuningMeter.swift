@@ -21,6 +21,7 @@ struct TuningMeter: View {
     
     private var cents: Double {
         // Use direct cents if provided (from AudioKit which knows the actual detected note)
+        // This is critical for auto mode where the needle should show deviation from the detected note
         if let directCents = directCents {
             return directCents
         }
@@ -79,13 +80,21 @@ struct TuningMeter: View {
             animatedRotation = 0
         }
         .onChange(of: currentFrequency) { oldValue, newValue in
-            // Use the unified needle mapper for smooth, consistent movement
-            let newRotation = needleMapper.rotationDegrees(
-                currentHz: currentFrequency,
-                targetHz: targetFrequency,
-                previousDegrees: animatedRotation,
-                maxAngle: 45.0
-            )
+            // If we have direct cents from AudioKit, use that directly
+            // This is especially important for auto mode
+            let newRotation: Double
+            if let directCents = directCents {
+                // Convert cents directly to rotation (-50 to +50 cents maps to -45 to +45 degrees)
+                newRotation = max(-45, min(45, directCents * 0.9))
+            } else {
+                // Fall back to needle mapper for manual mode
+                newRotation = needleMapper.rotationDegrees(
+                    currentHz: currentFrequency,
+                    targetHz: targetFrequency,
+                    previousDegrees: animatedRotation,
+                    maxAngle: 45.0
+                )
+            }
             
             withAnimation(.linear(duration: 0.05)) {
                 animatedRotation = newRotation

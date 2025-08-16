@@ -360,9 +360,9 @@ struct ContentView: View {
             // 이전 타이머 취소
             autoSelectDebounceTimer?.invalidate()
             
-            // 동일한 현이 0.5초 동안 유지되어야 변경 (더 안정적으로)
+            // 동일한 현이 0.3초 동안 유지되어야 변경 (더 빠른 반응)
             pendingAutoSelect = newString
-            autoSelectDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
+            autoSelectDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
                 // 여전히 같은 현을 가리키고 있으면 변경
                 let currentNewString = AutoStringSelector.pickString(
                     for: Double(self.audioEngine.frequency), 
