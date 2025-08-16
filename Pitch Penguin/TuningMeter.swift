@@ -73,8 +73,6 @@ struct TuningMeter: View {
             animatedRotation = 0
         }
         .onChange(of: currentFrequency) { oldValue, newValue in
-            print("🎸 TuningMeter frequency changed: \(oldValue) -> \(newValue)")
-            
             // Use the unified needle mapper for smooth, consistent movement
             let newRotation = needleMapper.rotationDegrees(
                 currentHz: currentFrequency,
@@ -82,8 +80,6 @@ struct TuningMeter: View {
                 previousDegrees: animatedRotation,
                 maxAngle: 45.0
             )
-            
-            print("🎯 Needle rotation: \(animatedRotation) -> \(newRotation)")
             
             withAnimation(.linear(duration: 0.05)) {
                 animatedRotation = newRotation

@@ -19,9 +19,11 @@ struct ContentView: View {
     @State private var isAutoMode = true
     @State private var lastDetectedNote: String = ""
     @State private var currentNeedlePosition: Double = 0  // Track needle position
+    @State private var autoSelectDebounceTimer: Timer?
+    @State private var pendingAutoSelect: Int?
     
-    // Audio engine selection
-    @StateObject private var audioEngine = SimplePitchDetector()
+    // Audio engine selection - Using AudioKit proven library
+    @StateObject private var audioEngine = AudioKitTunerEngine()
     
     private var currentTuning: Tuning {
         let tunings = TuningData.getTunings(for: selectedInstrument)
@@ -98,17 +100,15 @@ struct ContentView: View {
         
         if isAutoMode {
             guard freq > 0 else { return "--" }
-            // Auto mode: find closest note absolutely
-            let A4 = 440.0
-            let midi = 69.0 + 12.0 * log2(freq / A4)
+            
+            // Use NoteMath for consistent note calculation
+            let noteNum = NoteMath.noteNumber(for: freq)
             
             // Limit to reasonable range for guitar/bass (E1 to E6)
             // E1 = MIDI 28, E6 = MIDI 88
-            guard midi >= 28 && midi <= 88 else { return "--" }
+            guard noteNum >= 28 && noteNum <= 88 else { return "--" }
             
-            let nearest = Int(round(midi))
-            let nameIndex = posMod(nearest, 12)
-            return NOTE_NAMES_SHARP[nameIndex]
+            return NoteMath.name(forNote: noteNum)
         } else {
             // Manual mode: ALWAYS show the selected string's note
             guard let gs = currentStrings[safe: selectedString] else { return "--" }
@@ -243,11 +243,31 @@ struct ContentView: View {
                     .offset(y: -20)
             }
         }
+        .onAppear {
+            // Set up target frequency callback
+            audioEngine.getTargetFrequency = {
+                return currentStrings[safe: selectedString]?.frequency ?? 0
+            }
+            // Set up mode callback
+            audioEngine.getCurrentMode = { [self] in
+                return isAutoMode ? .auto : .manual
+            }
+        }
         .onChange(of: audioEngine.frequency) { _, newValue in
             let frequency = Double(newValue)
             // Store last detected note
             if frequency > 0 {
                 lastDetectedNote = displayedNote
+                
+                // Debug: Compare with target
+                if let targetString = currentStrings[safe: selectedString] {
+                    let cents = 1200 * log2(frequency / targetString.frequency)
+                    let note = displayedNote
+                    print("🎯 Target: \(targetString.note)\(targetString.octave) (\(String(format: "%.2f", targetString.frequency)) Hz)")
+                    print("📍 Current: \(note) (\(String(format: "%.2f", frequency)) Hz)")
+                    print("📏 Difference: \(String(format: "%+.1f", cents)) cents")
+                    print("---")
+                }
             }
             
             // Auto select string if in auto mode
@@ -261,6 +281,17 @@ struct ContentView: View {
             if let targetFreq = currentStrings[safe: selectedString]?.frequency {
                 updatePenguinState(currentFrequency: frequency, targetFrequency: targetFreq)
             }
+        }
+        .onChange(of: selectedString) { _, _ in
+            // Update target frequency when string changes
+            audioEngine.getTargetFrequency = {
+                return currentStrings[safe: selectedString]?.frequency ?? 0
+            }
+        }
+        .onChange(of: isAutoMode) { _, _ in
+            // Update mode and target
+            // audioEngine.mode = isAutoMode ? .auto : .manual
+            // audioEngine.manualTargetHz = isAutoMode ? nil : currentStrings[safe: selectedString]?.frequency
         }
         .onChange(of: selectedInstrument) { _, _ in
             selectedString = 0 // Reset to first string when changing instrument
@@ -320,20 +351,32 @@ struct ContentView: View {
     }
     
     private func autoSelectString(frequency: Double) {
-        var closestString = 0
-        var minCentsDiff = Double.infinity
+        // Use AutoStringSelector from NoteMath
+        let newString = AutoStringSelector.pickString(for: frequency, prevLocked: selectedString)
         
-        for (index, string) in currentStrings.enumerated() {
-            let cents = abs(1200 * log2(frequency / string.frequency))
-            if cents < minCentsDiff && cents < 50 { // Within 50 cents
-                minCentsDiff = cents
-                closestString = index
+        // 현재 현과 다르면 디바운싱 적용
+        if newString != selectedString {
+            // 이전 타이머 취소
+            autoSelectDebounceTimer?.invalidate()
+            
+            // 동일한 현이 0.3초 동안 유지되어야 변경
+            pendingAutoSelect = newString
+            autoSelectDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
+                // 여전히 같은 현을 가리키고 있으면 변경
+                let currentNewString = AutoStringSelector.pickString(
+                    for: Double(self.audioEngine.frequency), 
+                    prevLocked: self.selectedString
+                )
+                if currentNewString == self.pendingAutoSelect {
+                    self.selectedString = currentNewString
+                    print("🎸 Auto-selected string \(currentNewString): \(self.currentStrings[currentNewString].note)\(self.currentStrings[currentNewString].octave)")
+                }
+                self.pendingAutoSelect = nil
             }
-        }
-        
-        // Only change if significantly closer to another string
-        if closestString != selectedString && minCentsDiff < 30 {
-            selectedString = closestString
+        } else {
+            // 같은 현이면 타이머 취소
+            autoSelectDebounceTimer?.invalidate()
+            pendingAutoSelect = nil
         }
     }
     

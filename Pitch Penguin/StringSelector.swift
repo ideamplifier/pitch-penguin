@@ -13,7 +13,7 @@ struct StringSelector: View {
     let accuracyStates: [Bool]
     let currentFrequency: Double
     var isDisabled: Bool = false
-    let toneGenerator = ToneGenerator()
+    // let toneGenerator = ToneGenerator() // 제거됨
     
     private func getBackgroundColor(for index: Int) -> Color {
         if selectedString == index && !isDisabled {
@@ -41,7 +41,7 @@ struct StringSelector: View {
                 Button(action: {
                     if !isDisabled {
                         selectedString = index
-                        toneGenerator.playTone(frequency: strings[index].frequency, duration: 1.0)
+                        // toneGenerator.playTone(frequency: strings[index].frequency, duration: 1.0) // 제거됨
                     }
                 }) {
                     Text(strings[index].note)

@@ -1,26 +1,29 @@
 import Foundation
 
-// Drop-in helper: map cents to a smooth, bounded angle for your existing UI.
-public struct TuningNeedleMapper {
-    public init() {}
+// MARK: - Slew Limiter
+final class SlewLimiter {
+    private var last = 0.0
+    private let maxDegPerSec = 240.0
+    func step(to target: Double, dt: Double = 0.05) -> Double {
+        let m = maxDegPerSec * dt
+        let d = max(-m, min(m, target - last))
+        last += d
+        if abs(last - target) < 1.5 { last = target }
+        return last
+    }
+}
 
-    // Returns degrees in [-maxAngle, +maxAngle] with soft compression near the ends.
-    public func rotationDegrees(currentHz: Double, targetHz: Double, previousDegrees: Double, maxAngle: Double = 45.0) -> Double {
-        guard currentHz > 0, targetHz > 0 else {
-            // graceful decay to center
-            return previousDegrees * 0.96
-        }
-        let cents = 1200.0 * log2(currentHz / targetHz)
-
-        // Clamp to display range ±50c, then soft-compress (tanh) so ends still show micro-movement
+// MARK: - Needle mapping
+final class TuningNeedleLogic {
+    private let maxAngle = 46.0
+    private let slewLimiter = SlewLimiter()
+    func angleDegrees(for cents: Double, locked: Bool, previousDegrees: Double) -> Double {
         let displayRange = 50.0
         let clamped = max(-displayRange, min(displayRange, cents))
-        let soft = tanh(clamped / 35.0) // tweak 30~40 for feel
-
-        let target = soft * maxAngle
-
-        // EMA for smoothness
-        let smoothed = 0.85 * previousDegrees + 0.15 * target
+        let tapered = locked ? tanh(clamped / 30.0) : tanh(clamped / 35.0)
+        let target = tapered * maxAngle
+        let limited = slewLimiter.step(to: target, dt: 0.05)
+        let smoothed = 0.85 * previousDegrees + 0.15 * limited
         return smoothed
     }
 }
