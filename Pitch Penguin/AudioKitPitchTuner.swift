@@ -267,14 +267,20 @@ final class AudioKitPitchTuner: ObservableObject {
     private func frequencyToNote(_ frequency: Float) -> (note: String, octave: Int, cents: Int) {
         guard frequency > 0 else { return ("--", 0, 0) }
         
-        // Calculate semitones from A4
-        let semitones = 12.0 * log2(frequency / a4Frequency)
-        let roundedSemitones = round(semitones)
-        let cents = Int(round((semitones - roundedSemitones) * 100))
+        // Use C0 as reference (MIDI note 12 = C0 = 16.35 Hz)
+        let c0Frequency: Float = 16.35
         
-        // Calculate note and octave
-        let noteIndex = (Int(roundedSemitones) + 9 + 1200) % 12
-        let octave = 4 + Int((roundedSemitones + 9) / 12)
+        // Calculate semitones from C0
+        let semitones = 12.0 * log2(frequency / c0Frequency)
+        let midiNote = Int(round(semitones)) + 12
+        
+        // Get note name and octave
+        let noteIndex = midiNote % 12
+        let octave = (midiNote / 12) - 1
+        
+        // Calculate cents deviation
+        let exactSemitones = 12.0 * log2(frequency / c0Frequency)
+        let cents = Int(round((exactSemitones - Float(Int(round(exactSemitones)))) * 100))
         
         return (noteNames[noteIndex], octave, cents)
     }
