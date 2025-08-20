@@ -8,6 +8,23 @@
 import XCTest
 @testable import Pitch_Penguin
 
+struct TuningNeedleMapper {
+    func rotationDegrees(currentHz: Double, targetHz: Double, previousDegrees: Double, maxAngle: Double = 45.0) -> Double {
+        guard currentHz > 0, targetHz > 0 else {
+            return previousDegrees * 0.96
+        }
+        let cents = 1200.0 * log2(currentHz / targetHz)
+        
+        let displayRange = 50.0
+        let clamped = max(-displayRange, min(displayRange, cents))
+        let soft = tanh(clamped / 35.0)
+        
+        let target = soft * maxAngle
+        let smoothed = 0.85 * previousDegrees + 0.15 * target
+        return smoothed
+    }
+}
+
 final class Pitch_PenguinTests: XCTestCase {
 
     override func setUpWithError() throws {
@@ -26,11 +43,16 @@ final class Pitch_PenguinTests: XCTestCase {
         // Mark your test async to allow awaiting for asynchronous code to complete. Check the results with assertions afterwards.
     }
 
-    func testPerformanceExample() throws {
-        // This is an example of a performance test case.
+    func testTuningNeedleMapperPerformance() throws {
+        let mapper = TuningNeedleMapper()
+        var rotation: Double = 0
+        let targetHz = 82.41
+        
         self.measure {
-            // Put the code you want to measure the time of here.
+            for i in 0...1000 {
+                let hz = 82.41 + Double(i) * 0.01
+                rotation = mapper.rotationDegrees(currentHz: hz, targetHz: targetHz, previousDegrees: rotation)
+            }
         }
     }
-
 }

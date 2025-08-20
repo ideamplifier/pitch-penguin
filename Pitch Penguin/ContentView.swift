@@ -233,6 +233,7 @@ struct ContentView: View {
                              accuracyStates: stringAccuracyStates,
                              currentFrequency: Double(audioEngine.frequency),
                              isDisabled: isAutoMode)
+                    .environmentObject(audioEngine)
                     .padding(.horizontal)
                     .offset(y: -20)
                     .opacity(isAutoMode ? 0.3 : 1.0)

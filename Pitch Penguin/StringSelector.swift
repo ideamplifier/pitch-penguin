@@ -8,12 +8,12 @@
 import SwiftUI
 
 struct StringSelector: View {
+    @EnvironmentObject var audioEngine: AudioKitPitchTuner
     @Binding var selectedString: Int
     let strings: [GuitarString]
     let accuracyStates: [Bool]
     let currentFrequency: Double
     var isDisabled: Bool = false
-    // let toneGenerator = ToneGenerator() // 제거됨
     
     private func getBackgroundColor(for index: Int) -> Color {
         if selectedString == index && !isDisabled {
@@ -41,8 +41,8 @@ struct StringSelector: View {
                 Button(action: {
                     if !isDisabled {
                         selectedString = index
-                        // toneGenerator.playTone(frequency: strings[index].frequency, duration: 1.0) // 제거됨
                     }
+                    audioEngine.playTone(frequency: strings[index].frequency)
                 }) {
                     Text(strings[index].note)
                         .font(.title2)

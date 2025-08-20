@@ -10,6 +10,42 @@ import AudioKit
 import SoundpipeAudioKit
 import AVFoundation
 
+// MARK: - ToneGenerator Class
+
+class ToneGenerator {
+    private let engine = AudioEngine()
+    private let oscillator: Oscillator
+    private let envelope: AmplitudeEnvelope
+    
+    init() {
+        oscillator = Oscillator(waveform: Table(.sine), amplitude: 0.5)
+        envelope = AmplitudeEnvelope(oscillator)
+        envelope.attackDuration = 0.01
+        envelope.decayDuration = 0.1
+        envelope.sustainLevel = 0.1
+        envelope.releaseDuration = 0.2
+        
+        engine.output = envelope
+        
+        do {
+            try engine.start()
+        } catch {
+            print("❌ ToneGenerator Engine failed to start: \(error)")
+        }
+    }
+    
+    func play(frequency: Double, duration: TimeInterval = 0.5) {
+        oscillator.frequency = AUValue(frequency)
+        envelope.open()
+        
+        // Stop after duration
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+            self.envelope.close()
+        }
+    }
+}
+
+
 final class AudioKitPitchTuner: ObservableObject {
     // MARK: - Published Properties
     @Published var frequency: Float = 0
@@ -29,6 +65,7 @@ final class AudioKitPitchTuner: ObservableObject {
     private let engine = AudioEngine()
     private var pitchTap: PitchTap?
     private var mixer: Mixer?
+    private let toneGenerator = ToneGenerator() // Add this
     
     // MARK: - Processing Settings
     private let minimumAmplitude: Float = 0.01
@@ -37,7 +74,7 @@ final class AudioKitPitchTuner: ObservableObject {
     
     // MARK: - Frequency Smoothing
     private var frequencyBuffer: [Float] = []
-    private let bufferSize = 10
+    private let bufferSize = 20
     private var smoothedFrequency: Float = 0
     private var consecutiveStableReadings = 0
     
@@ -103,6 +140,11 @@ final class AudioKitPitchTuner: ObservableObject {
         
         // Connect mixer to output
         engine.output = mixer
+    }
+    
+    // MARK: - Tone Generator Control
+    func playTone(frequency: Double) {
+        toneGenerator.play(frequency: frequency)
     }
     
     // MARK: - Recording Control
@@ -198,7 +240,7 @@ final class AudioKitPitchTuner: ObservableObject {
         let standardDeviation = sqrt(variance)
         
         // Consider stable if standard deviation is low
-        let isStable = standardDeviation < 3.0
+        let isStable = standardDeviation < 5.0
         
         if isStable {
             consecutiveStableReadings += 1
@@ -211,7 +253,7 @@ final class AudioKitPitchTuner: ObservableObject {
             smoothedFrequency = median
         } else {
             // Heavier smoothing when stable
-            let alpha: Float = isStable ? 0.8 : 0.5
+            let alpha: Float = isStable ? 0.9 : 0.5
             smoothedFrequency = alpha * smoothedFrequency + (1 - alpha) * median
         }
         
