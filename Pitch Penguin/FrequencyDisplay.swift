@@ -66,30 +66,16 @@ struct FrequencyDisplay: View {
                 .foregroundColor(statusColor)
                 .frame(height: 34)
             
-            HStack(spacing: 60) {
-                VStack(alignment: .center, spacing: 4) {
-                    Text("Current")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .frame(height: 16)
-                    Text(currentFrequency > 0 ? String(format: "%.1f Hz", currentFrequency) : "-- Hz")
-                        .font(.title3)
-                        .fontWeight(.medium)
-                        .frame(width: 100, height: 28, alignment: .center)
-                }
-                .frame(width: 100)
-                
-                VStack(alignment: .center, spacing: 4) {
-                    Text("Target")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .frame(height: 16)
-                    Text(targetFrequency > 0 ? String(format: "%.1f Hz", targetFrequency) : "-- Hz")
-                        .font(.title3)
-                        .fontWeight(.medium)
-                        .frame(width: 100, height: 28, alignment: .center)
-                }
-                .frame(width: 100)
+            // Display only the current frequency, centered
+            VStack(alignment: .center, spacing: 4) {
+                Text("Current")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(height: 16)
+                Text(currentFrequency > 0 ? String(format: "%.1f Hz", currentFrequency) : "-- Hz")
+                    .font(.title3)
+                    .fontWeight(.medium)
+                    .frame(minWidth: 120, alignment: .center) // Ensure enough width for centering
             }
             
         }
