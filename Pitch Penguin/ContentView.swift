@@ -203,7 +203,8 @@ private struct MainView: View {
                 lastDetectedNote: lastDetectedNote,
                 onStartStop: {
                     if isListening { stopListening() } else { startListening() }
-                }
+                },
+                currentTuning: currentTuning // Pass currentTuning
             )
 
             FrequencyDisplayWrapper(
@@ -241,6 +242,7 @@ private struct TunerDisplay: View {
     let displayedNote: String
     let lastDetectedNote: String
     let onStartStop: () -> Void
+    let currentTuning: Tuning // Add this
 
     var body: some View {
         VStack(spacing: -80) {
@@ -259,7 +261,8 @@ private struct TunerDisplay: View {
                     lastDetectedNote: lastDetectedNote,
                     selectedNote: currentStrings[safe: selectedString],
                     frequency: audioEngine.frequency,
-                    cents: audioEngine.cents
+                    cents: audioEngine.cents,
+                    currentTuning: currentTuning // Pass currentTuning
                 )
                 .offset(y: -152)
             }
@@ -282,11 +285,13 @@ private struct NoteDisplay: View {
     let selectedNote: GuitarString?
     let frequency: Float
     let cents: Int
+    let currentTuning: Tuning // Add this
 
     var body: some View {
         VStack(spacing: 4) {
             if isListening {
-                Text(displayedNote)
+                let noteToDisplay = currentTuning.name == "Standard" ? displayedNote : (selectedNote?.note ?? "--")
+                Text(noteToDisplay)
                     .font(.system(size: 36, weight: .bold))
                     .foregroundColor(.primary)
 

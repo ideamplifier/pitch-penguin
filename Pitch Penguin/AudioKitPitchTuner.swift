@@ -88,9 +88,7 @@ final class AudioKitPitchTuner: ObservableObject {
     private func setupAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker])
-            try session.setPreferredSampleRate(48000.0)
-            try session.setPreferredIOBufferDuration(0.005) // 5ms buffer for low latency
+            try session.setCategory(.playAndRecord, mode: .default, options: []) // Removed .defaultToSpeaker
         } catch {
             print("❌ Failed to setup audio session: \(error)")
         }
@@ -126,34 +124,12 @@ final class AudioKitPitchTuner: ObservableObject {
     // MARK: - Tone Generator Control
 
     func playTone(frequency: Double) {
-        let wasEngineRunning = engine.avEngine.isRunning
-        let wasOscillatorStarted = oscillator.isStarted
-
-        if !wasEngineRunning {
-            do {
-                try engine.start()
-            } catch {
-                print("❌ Failed to start engine for tone: \(error)")
-                return
-            }
-        }
-        if !wasOscillatorStarted {
-            oscillator.start()
-        }
-
         oscillator.frequency = AUValue(frequency)
         envelope.openGate()
 
         // Stop after duration
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self = self else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             self.envelope.closeGate()
-            if !wasOscillatorStarted {
-                self.oscillator.stop()
-            }
-            if !wasEngineRunning {
-                self.engine.stop()
-            }
         }
     }
 
@@ -235,7 +211,9 @@ final class AudioKitPitchTuner: ObservableObject {
             frequencyBuffer.removeFirst()
         }
 
-        guard frequencyBuffer.count >= 3 else { return }
+        guard frequencyBuffer.count >= 3 else {
+            return
+        }
 
         let sorted = frequencyBuffer.sorted()
         let median = sorted[sorted.count / 2]
