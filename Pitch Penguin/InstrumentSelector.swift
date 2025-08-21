@@ -11,7 +11,7 @@ struct InstrumentSelector: View {
     @Binding var selectedInstrument: InstrumentType
     @Binding var selectedTuningIndex: Int
     @State private var showTuningPicker = false
-    
+
     var body: some View {
         VStack(spacing: 16) {
             // Instrument selection - minimal tabs with underline
@@ -38,7 +38,7 @@ struct InstrumentSelector: View {
                     .buttonStyle(PlainButtonStyle())
                 }
             }
-            
+
             // Tuning selection - dropdown style
             let tunings = TuningData.getTunings(for: selectedInstrument)
             Button(action: {

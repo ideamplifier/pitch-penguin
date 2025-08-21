@@ -1,6 +1,7 @@
 import Foundation
 
 // MARK: - Slew Limiter
+
 final class SlewLimiter {
     private var last = 0.0
     private let maxDegPerSec = 240.0
@@ -14,6 +15,7 @@ final class SlewLimiter {
 }
 
 // MARK: - Needle mapping
+
 final class TuningNeedleLogic {
     private let maxAngle = 46.0
     private let slewLimiter = SlewLimiter()

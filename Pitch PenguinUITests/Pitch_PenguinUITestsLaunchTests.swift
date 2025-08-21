@@ -8,7 +8,6 @@
 import XCTest
 
 final class Pitch_PenguinUITestsLaunchTests: XCTestCase {
-
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true
     }

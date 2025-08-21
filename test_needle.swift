@@ -9,11 +9,11 @@ struct TuningNeedleMapper {
             return previousDegrees * 0.96
         }
         let cents = 1200.0 * log2(currentHz / targetHz)
-        
+
         let displayRange = 50.0
         let clamped = max(-displayRange, min(displayRange, cents))
         let soft = tanh(clamped / 35.0)
-        
+
         let target = soft * maxAngle
         let smoothed = 0.85 * previousDegrees + 0.15 * target
         return smoothed
@@ -32,7 +32,7 @@ let testCases = [
     (82.41, "perfect"),
     (83.0, "slightly sharp"),
     (85.0, "sharp"),
-    (80.0, "flat")
+    (80.0, "flat"),
 ]
 
 for (hz, description) in testCases {
@@ -45,7 +45,7 @@ for (hz, description) in testCases {
 print("\nTesting extreme frequencies:")
 let extremeCases = [
     (150.0, "way too sharp"),
-    (40.0, "way too flat")
+    (40.0, "way too flat"),
 ]
 
 for (hz, description) in extremeCases {
@@ -57,7 +57,7 @@ for (hz, description) in extremeCases {
 // Test smooth transitions
 print("\nTesting smooth transitions (simulating gradual pitch change):")
 rotation = 0
-for i in 0...10 {
+for i in 0 ... 10 {
     let hz = 82.41 + Double(i) * 0.5
     rotation = mapper.rotationDegrees(currentHz: hz, targetHz: targetHz, previousDegrees: rotation)
     print(String(format: "%.2f Hz -> %.2f degrees", hz, rotation))

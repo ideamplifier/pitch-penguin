@@ -11,7 +11,7 @@ struct PenguinView: View {
     let state: PenguinState
     @State private var guitarFrame = 0
     @State private var animationTimer: Timer?
-    
+
     private var imageName: String {
         switch state {
         case .waiting:
@@ -24,7 +24,7 @@ struct PenguinView: View {
             return "pp_down"
         }
     }
-    
+
     var body: some View {
         Image(imageName)
             .resizable()
@@ -42,7 +42,7 @@ struct PenguinView: View {
                 }
             }
     }
-    
+
     private func startAnimation() {
         stopAnimation()
         if state == .waiting {
@@ -51,7 +51,7 @@ struct PenguinView: View {
             }
         }
     }
-    
+
     private func stopAnimation() {
         animationTimer?.invalidate()
         animationTimer = nil

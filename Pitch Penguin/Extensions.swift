@@ -19,7 +19,7 @@ extension Array {
             return index >= 0 && index < count ? self[index] : nil
         }
         set {
-            if let newValue = newValue, index >= 0 && index < count {
+            if let newValue = newValue, index >= 0, index < count {
                 self[index] = newValue
             }
         }

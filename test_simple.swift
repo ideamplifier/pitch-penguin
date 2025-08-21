@@ -9,7 +9,7 @@ let testCases: [(Double, String)] = [
     (82.41, "perfect"),
     (83.0, "slightly sharp"),
     (85.0, "sharp"),
-    (80.0, "flat")
+    (80.0, "flat"),
 ]
 
 print("Testing cents calculation:")

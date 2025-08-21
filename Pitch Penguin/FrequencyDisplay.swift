@@ -10,19 +10,19 @@ import SwiftUI
 struct FrequencyDisplay: View {
     let currentFrequency: Double
     let targetFrequency: Double
-    var isAutoMode: Bool = false
-    var needlePosition: Double = 0
     
+    var needlePosition: Double = 0
+
     private var cents: Double {
         guard currentFrequency > 0 && targetFrequency > 0 else { return 0 }
         return 1200 * log2(currentFrequency / targetFrequency)
     }
-    
+
     private var statusText: String {
         if currentFrequency == 0 {
             return "Play a string"
         }
-        
+
         // Use needle position instead of cents
         let absPosition = abs(needlePosition)
         if absPosition < 5 {
@@ -43,21 +43,29 @@ struct FrequencyDisplay: View {
             }
         }
     }
-    
+
     private var statusColor: Color {
-        guard currentFrequency > 0 else { return Color(red: 0.055, green: 0.059, blue: 0.063) }  // 펭귄 검은색
-        
+        guard currentFrequency > 0 else { return Color(red: 0.055, green: 0.059, blue: 0.063) } // 펭귄 검은색
+
         // Use needle position instead of cents
         let absPosition = abs(needlePosition)
         if absPosition < 9 {
-            return .green  // Perfect or Good
+            return .green // Perfect or Good
         } else if needlePosition < 0 {
-            return .yellow  // Low or Too low
+            return .yellow // Low or Too low
         } else {
-            return Color(red: 0.914, green: 0.384, blue: 0.173)  // #e9622c - High or Too high
+            return Color(red: 0.914, green: 0.384, blue: 0.173) // #e9622c - High or Too high
         }
     }
-    
+
+    private var frequencyColor: Color {
+        if statusText == "Perfect!" {
+            return .green
+        } else {
+            return Color(red: 0.055, green: 0.059, blue: 0.063)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 15) {
             Text(statusText)
@@ -65,19 +73,14 @@ struct FrequencyDisplay: View {
                 .fontWeight(.bold)
                 .foregroundColor(statusColor)
                 .frame(height: 34)
-            
-            // Display only the current frequency, centered
+
             VStack(alignment: .center, spacing: 4) {
-                Text("Current")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .frame(height: 16)
                 Text(currentFrequency > 0 ? String(format: "%.1f Hz", currentFrequency) : "-- Hz")
                     .font(.title3)
                     .fontWeight(.medium)
+                    .foregroundColor(frequencyColor)
                     .frame(minWidth: 120, alignment: .center) // Ensure enough width for centering
             }
-            
         }
     }
 }

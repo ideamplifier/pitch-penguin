@@ -13,11 +13,11 @@ struct TuningNeedleMapper {
             return previousDegrees * 0.96
         }
         let cents = 1200.0 * log2(currentHz / targetHz)
-        
+
         let displayRange = 50.0
         let clamped = max(-displayRange, min(displayRange, cents))
         let soft = tanh(clamped / 35.0)
-        
+
         let target = soft * maxAngle
         let smoothed = 0.85 * previousDegrees + 0.15 * target
         return smoothed

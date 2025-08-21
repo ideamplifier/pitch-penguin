@@ -5,8 +5,8 @@
 //  Created by EUIHYUNG JUNG on 8/8/25.
 //
 
-import XCTest
 @testable import Pitch_Penguin
+import XCTest
 
 struct TuningNeedleMapper {
     func rotationDegrees(currentHz: Double, targetHz: Double, previousDegrees: Double, maxAngle: Double = 45.0) -> Double {
@@ -14,11 +14,11 @@ struct TuningNeedleMapper {
             return previousDegrees * 0.96
         }
         let cents = 1200.0 * log2(currentHz / targetHz)
-        
+
         let displayRange = 50.0
         let clamped = max(-displayRange, min(displayRange, cents))
         let soft = tanh(clamped / 35.0)
-        
+
         let target = soft * maxAngle
         let smoothed = 0.85 * previousDegrees + 0.15 * target
         return smoothed
@@ -26,7 +26,6 @@ struct TuningNeedleMapper {
 }
 
 final class Pitch_PenguinTests: XCTestCase {
-
     override func setUpWithError() throws {
         // Put setup code here. This method is called before the invocation of each test method in the class.
     }
@@ -47,9 +46,9 @@ final class Pitch_PenguinTests: XCTestCase {
         let mapper = TuningNeedleMapper()
         var rotation: Double = 0
         let targetHz = 82.41
-        
-        self.measure {
-            for i in 0...1000 {
+
+        measure {
+            for i in 0 ... 1000 {
                 let hz = 82.41 + Double(i) * 0.01
                 rotation = mapper.rotationDegrees(currentHz: hz, targetHz: targetHz, previousDegrees: rotation)
             }
