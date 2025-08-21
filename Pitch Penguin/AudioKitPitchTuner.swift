@@ -10,42 +10,6 @@ import AudioKit
 import SoundpipeAudioKit
 import AVFoundation
 
-// MARK: - ToneGenerator Class
-
-class ToneGenerator {
-    private let engine = AudioEngine()
-    private let oscillator: Oscillator
-    private let envelope: AmplitudeEnvelope
-    
-    init() {
-        oscillator = Oscillator(waveform: Table(.sine), amplitude: 0.5)
-        envelope = AmplitudeEnvelope(oscillator)
-        envelope.attackDuration = 0.01
-        envelope.decayDuration = 0.1
-        envelope.sustainLevel = 0.1
-        envelope.releaseDuration = 0.2
-        
-        engine.output = envelope
-        
-        do {
-            try engine.start()
-        } catch {
-            print("❌ ToneGenerator Engine failed to start: \(error)")
-        }
-    }
-    
-    func play(frequency: Double, duration: TimeInterval = 0.5) {
-        oscillator.frequency = AUValue(frequency)
-        envelope.open()
-        
-        // Stop after duration
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-            self.envelope.close()
-        }
-    }
-}
-
-
 final class AudioKitPitchTuner: ObservableObject {
     // MARK: - Published Properties
     @Published var frequency: Float = 0
@@ -61,11 +25,14 @@ final class AudioKitPitchTuner: ObservableObject {
     var getCurrentMode: (() -> Mode)? = { .auto }
     enum Mode { case auto, manual }
     
-    // MARK: - Audio Properties
+    // MARK: - Audio Properties (Single Engine for both input and output)
     private let engine = AudioEngine()
     private var pitchTap: PitchTap?
     private var mixer: Mixer?
-    private let toneGenerator = ToneGenerator() // Add this
+    
+    // Tone Generator properties (within same engine)
+    private let oscillator: Oscillator
+    private let envelope: AmplitudeEnvelope
     
     // MARK: - Processing Settings
     private let minimumAmplitude: Float = 0.01
@@ -94,6 +61,14 @@ final class AudioKitPitchTuner: ObservableObject {
     
     // MARK: - Initialization
     init() {
+        // Initialize tone generator components
+        oscillator = Oscillator(waveform: Table(.sine), amplitude: 0.5)
+        envelope = AmplitudeEnvelope(oscillator)
+        envelope.attackDuration = 0.01
+        envelope.decayDuration = 0.1
+        envelope.sustainLevel = 0.1
+        envelope.releaseDuration = 0.2
+        
         setupAudioSession()
         setupAudioEngine()
     }
@@ -119,18 +94,16 @@ final class AudioKitPitchTuner: ObservableObject {
             return
         }
         
-        // Create a mixer to connect input
-        mixer = Mixer(input)
+        // Create mixer that combines input (for pitchTap) and oscillator (for tone generation)
+        mixer = Mixer(input, envelope)
         
-        // Set up PitchTap with callback
-        pitchTap = PitchTap(mixer!) { [weak self] pitchArray, ampArray in
+        // Set up PitchTap on the input
+        pitchTap = PitchTap(input) { [weak self] pitchArray, ampArray in
             guard let self = self else { return }
             
-            // Use first channel (mono)
             let detectedPitch = pitchArray[0]
             let detectedAmplitude = ampArray[0]
             
-            // Process if amplitude is sufficient
             if detectedAmplitude > self.minimumAmplitude {
                 self.processPitch(detectedPitch, amplitude: detectedAmplitude)
             } else {
@@ -138,13 +111,19 @@ final class AudioKitPitchTuner: ObservableObject {
             }
         }
         
-        // Connect mixer to output
+        // Set mixer as output (handles both input monitoring and tone output)
         engine.output = mixer
     }
     
     // MARK: - Tone Generator Control
     func playTone(frequency: Double) {
-        toneGenerator.play(frequency: frequency)
+        oscillator.frequency = AUValue(frequency)
+        envelope.openGate()
+        
+        // Stop after duration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.envelope.closeGate()
+        }
     }
     
     // MARK: - Recording Control
@@ -155,7 +134,10 @@ final class AudioKitPitchTuner: ObservableObject {
             // Activate audio session
             try AVAudioSession.sharedInstance().setActive(true)
             
-            // Start the audio engine
+            // Start oscillator first (for tone generation)
+            oscillator.start()
+            
+            // Start the single audio engine
             try engine.start()
             
             // Start pitch detection
@@ -164,7 +146,6 @@ final class AudioKitPitchTuner: ObservableObject {
             isRecording = true
             resetState()
             
-            // Start update timer for UI
             updateTimer = Timer.scheduledTimer(withTimeInterval: updateInterval, repeats: true) { [weak self] _ in
                 self?.updateUI()
             }
@@ -179,18 +160,14 @@ final class AudioKitPitchTuner: ObservableObject {
     func stopRecording() {
         guard isRecording else { return }
         
-        // Stop pitch detection
         pitchTap?.stop()
-        
-        // Stop the engine
+        oscillator.stop()
         engine.stop()
         
-        // Deactivate audio session
         do {
             try AVAudioSession.sharedInstance().setActive(false)
         } catch { }
         
-        // Stop update timer
         updateTimer?.invalidate()
         updateTimer = nil
         
@@ -220,26 +197,19 @@ final class AudioKitPitchTuner: ObservableObject {
             return
         }
         
-        // Add to buffer
         frequencyBuffer.append(pitch)
         if frequencyBuffer.count > bufferSize {
             frequencyBuffer.removeFirst()
         }
         
-        // Need minimum samples
-        guard frequencyBuffer.count >= 3 else {
-            return
-        }
+        guard frequencyBuffer.count >= 3 else { return }
         
-        // Calculate median for stability
         let sorted = frequencyBuffer.sorted()
         let median = sorted[sorted.count / 2]
         
-        // Check for stability
         let variance = frequencyBuffer.map { pow($0 - median, 2) }.reduce(0, +) / Float(frequencyBuffer.count)
         let standardDeviation = sqrt(variance)
         
-        // Consider stable if standard deviation is low
         let isStable = standardDeviation < 5.0
         
         if isStable {
@@ -248,27 +218,21 @@ final class AudioKitPitchTuner: ObservableObject {
             consecutiveStableReadings = 0
         }
         
-        // Apply smoothing
         if smoothedFrequency == 0 {
             smoothedFrequency = median
         } else {
-            // Heavier smoothing when stable
             let alpha: Float = isStable ? 0.9 : 0.5
             smoothedFrequency = alpha * smoothedFrequency + (1 - alpha) * median
         }
         
-        // Store amplitude
         self.amplitude = amplitude
     }
     
     private func processSilence() {
         consecutiveStableReadings = 0
-        
-        // Slowly fade out
         if !frequencyBuffer.isEmpty {
             frequencyBuffer.removeLast()
         }
-        
         if frequencyBuffer.isEmpty {
             smoothedFrequency = 0
             amplitude = 0
@@ -287,8 +251,6 @@ final class AudioKitPitchTuner: ObservableObject {
                 self.currentNote = "\(noteData.note)\(noteData.octave)"
                 self.cents = noteData.cents
                 self.detectedString = self.detectGuitarString(self.smoothedFrequency)
-                
-                // Confidence based on stability
                 self.confidence = min(1.0, Float(self.consecutiveStableReadings) / 10.0)
                 
                 if self.consecutiveStableReadings > 5 {
@@ -309,26 +271,15 @@ final class AudioKitPitchTuner: ObservableObject {
     private func frequencyToNote(_ frequency: Float) -> (note: String, octave: Int, cents: Int) {
         guard frequency > 0 else { return ("--", 0, 0) }
         
-        // Calculate the nearest note and its cents deviation
-        // This ensures cents is always relative to the nearest note, not a fixed reference
         let a4Freq: Float = 440.0
-        let c0Freq: Float = a4Freq * pow(2, -4.75) // C0 = A4 * 2^(-57/12)
-        
-        // Calculate total semitones from C0
+        let c0Freq: Float = a4Freq * pow(2, -4.75)
         let totalSemitones = 12.0 * log2(frequency / c0Freq)
         let nearestSemitone = round(totalSemitones)
-        
-        // Get the actual frequency of the nearest note
         let nearestNoteFreq = c0Freq * pow(2, nearestSemitone / 12.0)
-        
-        // Calculate cents relative to the nearest note
         let cents = Int(round(1200.0 * log2(frequency / nearestNoteFreq)))
-        
-        // Get note name and octave
-        let midiNote = Int(nearestSemitone) + 12 // C0 = MIDI 12
+        let midiNote = Int(nearestSemitone) + 12
         let noteIndex = midiNote % 12
         let octave = (midiNote / 12) - 1
-        
         return (noteNames[noteIndex], octave, cents)
     }
     
@@ -347,7 +298,6 @@ final class AudioKitPitchTuner: ObservableObject {
             }
         }
         
-        // Only return if within 100 cents (1 semitone)
         return minCents < 100 ? closestString : nil
     }
 }

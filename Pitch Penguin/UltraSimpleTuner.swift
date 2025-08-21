@@ -77,30 +77,57 @@ final class UltraSimpleTuner: ObservableObject {
     // MARK: - Recording Control
     func startRecording() {
         guard !isRecording else { return }
+
+        let session = AVAudioSession.sharedInstance()
         
+        switch session.recordPermission {
+        case .granted:
+            setupAndStartEngine(session: session)
+        case .denied:
+            print("❌ Microphone permission denied. Please enable it in Settings.")
+            // Consider showing an alert to the user
+            return
+        case .undetermined:
+            session.requestRecordPermission { [weak self] granted in
+                DispatchQueue.main.async {
+                    if granted {
+                        self?.setupAndStartEngine(session: session)
+                    } else {
+                        print("❌ Microphone permission was not granted.")
+                    }
+                }
+            }
+        @unknown default:
+            print("❌ Unknown case for record permission")
+        }
+    }
+
+    private func setupAndStartEngine(session: AVAudioSession) {
         do {
-            let session = AVAudioSession.sharedInstance()
+            print("✅ Permission granted. Attempting to start engine with minimal setup...")
+            
+            // 1. Configure session
             try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker])
-            try session.setPreferredSampleRate(48000.0)
+            
+            // 2. Prepare the engine
+            audioEngine.prepare()
+            
+            // 3. Activate the session
             try session.setActive(true)
             
-            let inputFormat = inputNode.inputFormat(forBus: 0)
-            sampleRate = inputFormat.sampleRate
-            
-            inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: inputFormat) { [weak self] buffer, _ in
-                self?.processAudioBuffer(buffer)
-            }
-            
-            audioEngine.prepare()
+            // 4. Start the engine
             try audioEngine.start()
             
-            isRecording = true
-            resetState()
+            // NOTE: Tap is NOT installed for this test.
             
-            print("🎸 UltraSimpleTuner started")
+            DispatchQueue.main.async {
+                self.isRecording = true
+                print("✅✅✅ Audio engine started successfully! The problem is likely in the tap installation or audio processing.")
+            }
             
         } catch {
-            print("❌ Failed to start: \(error)")
+            print("❌❌❌ Failed to start even with minimal setup: \(error)")
+            print("The problem is fundamental to the engine start or session activation.")
         }
     }
     
