@@ -68,7 +68,10 @@ struct ContentView: View {
         .onChange(of: audioEngine.frequency) { _, newValue in handleFrequencyChange(newValue) }
         .onChange(of: selectedString) { _, _ in updateTargetFrequency() }
         .onChange(of: selectedInstrument) { _, _ in selectedString = 0 }
-        .onChange(of: selectedTuningIndex) { _, _ in selectedString = 0 }
+        .onChange(of: selectedTuningIndex) { _, _ in
+            audioEngine.setTuning(currentTuning)
+            selectedString = 0
+        }
         .alert("Microphone Permission", isPresented: $showPermissionAlert) {
             Button("OK") {}
         } message: {
@@ -290,8 +293,7 @@ private struct NoteDisplay: View {
     var body: some View {
         VStack(spacing: 4) {
             if isListening {
-                let noteToDisplay = currentTuning.name == "Standard" ? displayedNote : (selectedNote?.note ?? "--")
-                Text(noteToDisplay)
+                Text(displayedNote)
                     .font(.system(size: 36, weight: .bold))
                     .foregroundColor(.primary)
 
@@ -376,14 +378,7 @@ enum PenguinState {
     case waiting, tooLow, correct, tooHigh
 }
 
-struct GuitarString: Identifiable {
-    let id = UUID()
-    let note: String
-    let octave: Int
-    let frequency: Double
 
-    var displayName: String { "\(note)\(octave)" }
-}
 
 #Preview {
     ContentView()

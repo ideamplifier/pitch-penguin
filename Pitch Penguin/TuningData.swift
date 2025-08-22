@@ -18,6 +18,15 @@ struct Tuning {
     let notes: [GuitarString]
 }
 
+public struct GuitarString: Identifiable {
+    public let id = UUID()
+    public let note: String
+    public let octave: Int
+    public let frequency: Double
+
+    public var displayName: String { "\(note)\(octave)" }
+}
+
 class TuningData {
     static let guitarTunings: [Tuning] = [
         Tuning(name: "Standard", notes: [

@@ -50,16 +50,9 @@ final class AudioKitPitchTuner: ObservableObject {
     private var smoothedFrequency: Float = 0
     private var consecutiveStableReadings = 0
 
-    // MARK: - Guitar Strings
+    // MARK: - Active Tuning
+    @Published var activeTuning: Tuning
 
-    private let guitarStrings: [(note: String, octave: Int, frequency: Float)] = [
-        ("E", 2, 82.41),
-        ("A", 2, 110.00),
-        ("D", 3, 146.83),
-        ("G", 3, 196.00),
-        ("B", 3, 246.94),
-        ("E", 4, 329.63),
-    ]
 
     // MARK: - Note Names
 
@@ -68,7 +61,20 @@ final class AudioKitPitchTuner: ObservableObject {
 
     // MARK: - Initialization
 
-    init() {
+    convenience init() {
+        let standardTuning = Tuning(name: "Standard", notes: [
+            GuitarString(note: "E", octave: 2, frequency: 82.41),
+            GuitarString(note: "A", octave: 2, frequency: 110.00),
+            GuitarString(note: "D", octave: 3, frequency: 146.83),
+            GuitarString(note: "G", octave: 3, frequency: 196.00),
+            GuitarString(note: "B", octave: 3, frequency: 246.94),
+            GuitarString(note: "E", octave: 4, frequency: 329.63),
+        ])
+        self.init(tuning: standardTuning)
+    }
+
+    init(tuning: Tuning) {
+        self.activeTuning = tuning
         // Initialize tone generator components
         oscillator = Oscillator(waveform: Table(.sine), amplitude: 0.5)
         envelope = AmplitudeEnvelope(oscillator)
@@ -79,6 +85,12 @@ final class AudioKitPitchTuner: ObservableObject {
 
         setupAudioSession()
         setupAudioEngine()
+    }
+
+    // MARK: - Public Methods
+
+    func setTuning(_ newTuning: Tuning) {
+        activeTuning = newTuning
     }
 
     deinit {
@@ -259,17 +271,21 @@ final class AudioKitPitchTuner: ObservableObject {
             self.frequency = self.smoothedFrequency
 
             if self.smoothedFrequency > 0 {
-                let noteData = self.frequencyToNote(self.smoothedFrequency)
-                self.currentNote = "\(noteData.note)\(noteData.octave)"
-                self.cents = noteData.cents
-                self.detectedString = self.detectGuitarString(self.smoothedFrequency)
+                let chromaticNoteData = self.frequencyToChromaticNote(self.smoothedFrequency)
+                self.currentNote = "\(chromaticNoteData.note)\(chromaticNoteData.octave)"
+                
+                if let detectedStringIndex = self.detectGuitarString(self.smoothedFrequency) {
+                    self.detectedString = detectedStringIndex
+                    let targetFrequency = self.activeTuning.notes[detectedStringIndex].frequency
+                    self.cents = Int(round(1200.0 * log2(self.smoothedFrequency / Float(targetFrequency))))
+                } else {
+                    self.detectedString = nil
+                    // If no string is detected, use the chromatic cents.
+                    self.cents = chromaticNoteData.cents
+                }
+
                 self.confidence = min(1.0, Float(self.consecutiveStableReadings) / 10.0)
 
-                if self.consecutiveStableReadings > 5 {
-                    print("✅ \(self.currentNote): \(String(format: "%.1f", self.smoothedFrequency))Hz (\(self.cents > 0 ? "+" : "")\(self.cents)¢)")
-                } else {
-                    print("🎸 \(self.currentNote): \(String(format: "%.1f", self.smoothedFrequency))Hz (\(self.cents > 0 ? "+" : "")\(self.cents)¢)")
-                }
             } else {
                 self.currentNote = "--"
                 self.cents = 0
@@ -281,7 +297,7 @@ final class AudioKitPitchTuner: ObservableObject {
 
     // MARK: - Note Conversion
 
-    private func frequencyToNote(_ frequency: Float) -> (note: String, octave: Int, cents: Int) {
+    private func frequencyToChromaticNote(_ frequency: Float) -> (note: String, octave: Int, cents: Int) {
         guard frequency > 0 else { return ("--", 0, 0) }
 
         let a4Freq: Float = 440.0
@@ -299,19 +315,23 @@ final class AudioKitPitchTuner: ObservableObject {
     // MARK: - String Detection
 
     private func detectGuitarString(_ frequency: Float) -> Int? {
-        guard frequency > 0 else { return nil }
+        guard frequency > 0, !activeTuning.notes.isEmpty else { return nil }
 
-        var closestString = 0
-        var minCents = Float.greatestFiniteMagnitude
+        var closestStringIndex: Int?
+        var minCents: Float = .greatestFiniteMagnitude
 
-        for (index, string) in guitarStrings.enumerated() {
-            let cents = abs(1200 * log2(frequency / string.frequency))
-            if cents < minCents {
-                minCents = cents
-                closestString = index
+        for (index, string) in activeTuning.notes.enumerated() {
+            let centsDifference = abs(1200 * log2(frequency / Float(string.frequency)))
+            if centsDifference < minCents {
+                minCents = centsDifference
+                closestStringIndex = index
             }
         }
 
-        return minCents < 100 ? closestString : nil
+        if minCents < 100 {
+            return closestStringIndex
+        }
+
+        return nil
     }
 }
