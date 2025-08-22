@@ -70,6 +70,9 @@ struct ContentView: View {
         .onChange(of: selectedInstrument) { _, _ in selectedString = 0 }
         .onChange(of: selectedTuningIndex) { _, _ in
             audioEngine.setTuning(currentTuning)
+            print("[ContentView] Tuning changed -> \(currentTuning.name)")
+            let freqs = currentStrings.map { String(format: "%.2f", $0.frequency) }.joined(separator: ", ")
+            print("[ContentView] Current strings (Hz): [\(freqs)]")
             selectedString = 0
         }
         .alert("Microphone Permission", isPresented: $showPermissionAlert) {
@@ -139,14 +142,21 @@ struct ContentView: View {
     }
 
     private func autoSelectString(frequency: Double) {
-        let newString = AutoStringSelector.pickString(for: frequency, prevLocked: selectedString)
+        let stringFreqs = currentStrings.map { $0.frequency }
+        let newString = AutoStringSelector.pickString(for: frequency, stringsHz: stringFreqs, prevLocked: selectedString)
+        print(String(format: "[AutoSelect] f0=%.2f, strings=%@, pick=%d", frequency, stringFreqs.map{String(format: "%.2f", $0)}.joined(separator: ","), newString))
         if newString != selectedString {
             autoSelectDebounceTimer?.invalidate()
             pendingAutoSelect = newString
             autoSelectDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
-                let currentNewString = AutoStringSelector.pickString(for: Double(self.audioEngine.frequency), prevLocked: self.selectedString)
+                // Recompute strings to avoid stale capture and reflect any tuning change
+                let liveStrings = self.currentStrings.map { $0.frequency }
+                let fNow = Double(self.audioEngine.frequency)
+                let currentNewString = AutoStringSelector.pickString(for: fNow, stringsHz: liveStrings, prevLocked: self.selectedString)
+                print(String(format: "[AutoSelect:debounce] f0=%.2f, strings=%@, pick=%d, pending=%@", fNow, liveStrings.map{String(format: "%.2f", $0)}.joined(separator: ","), currentNewString, String(describing: self.pendingAutoSelect)))
                 if currentNewString == self.pendingAutoSelect {
                     self.selectedString = currentNewString
+                    print("[AutoSelect] selectedString -> \(self.selectedString)")
                 }
                 self.pendingAutoSelect = nil
             }
@@ -164,6 +174,9 @@ struct ContentView: View {
         for (index, string) in currentStrings.enumerated() {
             let cents = abs(1200 * log2(currentFrequency / string.frequency))
             stringAccuracyStates[safe: index] = cents < 5
+            if index == selectedString {
+                print(String(format: "[Accuracy] curr=%.2fHz target=%.2fHz -> %.1f¢", currentFrequency, string.frequency, cents))
+            }
         }
     }
 }

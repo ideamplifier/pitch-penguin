@@ -28,16 +28,11 @@ enum NoteMath {
         return 1200.0 * log2(f / fRef)
     }
 
-    enum GuitarStandard {
-        // E2 A2 D3 G3 B3 E4
-        static let stringsHz: [Double] = [82.41, 110.00, 146.83, 196.00, 246.94, 329.63]
-    }
-
-    /// Choose auto string index (0..5) for a given f0, with octave-penalty & lock bias.
-    static func autoStringIndex(for f0: Double, prevLocked: Int?) -> Int {
+    /// Choose auto string index (0..N-1) for a given f0, with octave-penalty & lock bias, over provided strings.
+    static func autoStringIndex(for f0: Double, stringsHz: [Double], prevLocked: Int?) -> Int {
         var bestIdx = 0
         var bestScore = Double.greatestFiniteMagnitude
-        for (i, t) in GuitarStandard.stringsHz.enumerated() {
+        for (i, t) in stringsHz.enumerated() {
             let cents = abs(1200.0 * log2(f0 / t))
             let centsHalf = abs(1200.0 * log2(f0 / (t / 2)))
             let centsDouble = abs(1200.0 * log2(f0 / (t * 2)))
@@ -51,13 +46,9 @@ enum NoteMath {
     }
 }
 
-enum GuitarStandard {
-    // E2 A2 D3 G3 B3 E4
-    static let stringsHz: [Double] = [82.41, 110.00, 146.83, 196.00, 246.94, 329.63]
-}
-
 enum AutoStringSelector {
-    static func pickString(for f0: Double, prevLocked: Int?) -> Int {
-        return NoteMath.autoStringIndex(for: f0, prevLocked: prevLocked)
+    /// Pick string index using the current tuning's string frequencies.
+    static func pickString(for f0: Double, stringsHz: [Double], prevLocked: Int?) -> Int {
+        return NoteMath.autoStringIndex(for: f0, stringsHz: stringsHz, prevLocked: prevLocked)
     }
 }

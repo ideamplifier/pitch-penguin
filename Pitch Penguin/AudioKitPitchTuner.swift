@@ -32,6 +32,7 @@ final class AudioKitPitchTuner: ObservableObject {
     private let engine = AudioEngine()
     private var pitchTap: PitchTap?
     private var mixer: Mixer?
+    // Removed background queue usage to simplify start/stop behavior
 
     // Tone Generator properties (within same engine)
     private let oscillator: Oscillator
@@ -51,7 +52,17 @@ final class AudioKitPitchTuner: ObservableObject {
     private var consecutiveStableReadings = 0
 
     // MARK: - Active Tuning
-    @Published var activeTuning: Tuning
+    @Published var activeTuning: Tuning {
+        didSet {
+            print("[AudioKitPitchTuner] activeTuning -> \(activeTuning.name)")
+            let freqs = activeTuning.notes.map { String(format: "%.2f", $0.frequency) }.joined(separator: ", ")
+            print("[AudioKitPitchTuner] strings (Hz): [\(freqs)]")
+            lastDetectedStringIndex = nil
+        }
+    }
+
+    // MARK: - String detection state (hysteresis)
+    private var lastDetectedStringIndex: Int? = nil
 
 
     // MARK: - Note Names
@@ -100,11 +111,13 @@ final class AudioKitPitchTuner: ObservableObject {
     private func setupAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: []) // Removed .defaultToSpeaker
+            try session.setCategory(.playAndRecord, mode: .default, options: [])
         } catch {
             print("❌ Failed to setup audio session: \(error)")
         }
     }
+
+    // No additional alignment required; rely on system defaults for stability
 
     private func setupAudioEngine() {
         guard let input = engine.input else {
@@ -114,64 +127,43 @@ final class AudioKitPitchTuner: ObservableObject {
 
         // Create mixer that combines input (for pitchTap) and oscillator (for tone generation)
         mixer = Mixer(input, envelope)
+        engine.output = mixer
 
-        // Set up PitchTap on the input
+        // Set up PitchTap on the input for pitch detection
         pitchTap = PitchTap(input) { [weak self] pitchArray, ampArray in
             guard let self = self else { return }
-
             let detectedPitch = pitchArray[0]
             let detectedAmplitude = ampArray[0]
-
             if detectedAmplitude > self.minimumAmplitude {
                 self.processPitch(detectedPitch, amplitude: detectedAmplitude)
             } else {
                 self.processSilence()
             }
         }
-
-        // Set mixer as output (handles both input monitoring and tone output)
-        engine.output = mixer
     }
 
     // MARK: - Tone Generator Control
 
-    func playTone(frequency: Double) {
-        oscillator.frequency = AUValue(frequency)
-        envelope.openGate()
-
-        // Stop after duration
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.envelope.closeGate()
-        }
-    }
+    func playTone(frequency _: Double) { /* disabled per request */ }
 
     // MARK: - Recording Control
 
     func startRecording() {
         guard !isRecording else { return }
-
         do {
-            // Activate audio session
             try AVAudioSession.sharedInstance().setActive(true)
-
-            // Start oscillator first (for tone generation)
-            oscillator.start()
-
-            // Start the single audio engine
             try engine.start()
-
-            // Start pitch detection
             pitchTap?.start()
+            oscillator.start()
 
             isRecording = true
             resetState()
-
             updateTimer = Timer.scheduledTimer(withTimeInterval: updateInterval, repeats: true) { [weak self] _ in
                 self?.updateUI()
             }
 
             print("🎸 AudioKit PitchTap Tuner started")
-
+            print("[AudioKitPitchTuner] start: tuning=\(self.activeTuning.name)")
         } catch {
             print("❌ Failed to start: \(error)")
         }
@@ -179,21 +171,15 @@ final class AudioKitPitchTuner: ObservableObject {
 
     func stopRecording() {
         guard isRecording else { return }
-
         pitchTap?.stop()
         oscillator.stop()
         engine.stop()
-
-        do {
-            try AVAudioSession.sharedInstance().setActive(false)
-        } catch {}
+        try? AVAudioSession.sharedInstance().setActive(false)
 
         updateTimer?.invalidate()
         updateTimer = nil
-
         isRecording = false
         resetState()
-
         print("🛑 AudioKit PitchTap Tuner stopped")
     }
 
@@ -207,6 +193,7 @@ final class AudioKitPitchTuner: ObservableObject {
         frequencyBuffer.removeAll()
         smoothedFrequency = 0
         consecutiveStableReadings = 0
+        lastDetectedStringIndex = nil
     }
 
     // MARK: - Pitch Processing
@@ -278,10 +265,21 @@ final class AudioKitPitchTuner: ObservableObject {
                     self.detectedString = detectedStringIndex
                     let targetFrequency = self.activeTuning.notes[detectedStringIndex].frequency
                     self.cents = Int(round(1200.0 * log2(self.smoothedFrequency / Float(targetFrequency))))
+                    print(String(format: "[AKTuner] f=%.2fHz str=%d target=%.2fHz cents=%d (tuning=%@)", self.smoothedFrequency, detectedStringIndex, targetFrequency, self.cents, self.activeTuning.name))
                 } else {
                     self.detectedString = nil
-                    // If no string is detected, use the chromatic cents.
-                    self.cents = chromaticNoteData.cents
+                    // When not locked to a string, drive the needle by the nearest tuning string
+                    // so it still reflects the selected tuning rather than chromatic notes.
+                    var nearestIndex = 0
+                    var minCentsDiff: Float = .greatestFiniteMagnitude
+                    for (i, s) in self.activeTuning.notes.enumerated() {
+                        let cents = abs(1200 * log2(self.smoothedFrequency / Float(s.frequency)))
+                        if cents < minCentsDiff { minCentsDiff = cents; nearestIndex = i }
+                    }
+                    let nearestTarget = self.activeTuning.notes[nearestIndex].frequency
+                    let centsToNearest = Int(round(1200.0 * log2(self.smoothedFrequency / Float(nearestTarget))))
+                    self.cents = centsToNearest
+                    print(String(format: "[AKTuner] f=%.2fHz no-lock nearest-str=%d target=%.2fHz cents=%d (chromatic=%@%d¢, tuning=%@)", self.smoothedFrequency, nearestIndex, nearestTarget, self.cents, chromaticNoteData.note, chromaticNoteData.cents, self.activeTuning.name))
                 }
 
                 self.confidence = min(1.0, Float(self.consecutiveStableReadings) / 10.0)
@@ -317,21 +315,48 @@ final class AudioKitPitchTuner: ObservableObject {
     private func detectGuitarString(_ frequency: Float) -> Int? {
         guard frequency > 0, !activeTuning.notes.isEmpty else { return nil }
 
-        var closestStringIndex: Int?
+        var closestIndex: Int = 0
         var minCents: Float = .greatestFiniteMagnitude
+        for (i, s) in activeTuning.notes.enumerated() {
+            let cents = abs(1200 * log2(frequency / Float(s.frequency)))
+            if cents < minCents { minCents = cents; closestIndex = i }
+        }
 
-        for (index, string) in activeTuning.notes.enumerated() {
-            let centsDifference = abs(1200 * log2(frequency / Float(string.frequency)))
-            if centsDifference < minCents {
-                minCents = centsDifference
-                closestStringIndex = index
+        // Hysteresis thresholds
+        let acquire: Float = 100   // to acquire a string
+        let release: Float = 106   // to release previously locked string (provide margin)
+
+        if let last = lastDetectedStringIndex {
+            // If closest remains last and within release margin, keep it
+            if closestIndex == last, minCents <= release {
+                // print for debugging decisions
+                print(String(format: "[AKTuner:StringDetect] keep last=%d (min=%.1f¢ <= %.0f)", last, minCents, release))
+                return last
             }
+            // If new closest is good enough to acquire, switch
+            if minCents <= acquire {
+                lastDetectedStringIndex = closestIndex
+                print(String(format: "[AKTuner:StringDetect] switch last=%@ -> %d (min=%.1f¢ <= %.0f)", String(describing: lastDetectedStringIndex), closestIndex, minCents, acquire))
+                return closestIndex
+            }
+            // Otherwise, check if last is still within release margin, keep last
+            let lastFreq = Float(activeTuning.notes[last].frequency)
+            let lastCents = abs(1200 * log2(frequency / lastFreq))
+            if lastCents <= release {
+                print(String(format: "[AKTuner:StringDetect] hold last=%d (last=%.1f¢ <= %.0f)", last, lastCents, release))
+                return last
+            }
+            // Drop lock
+            lastDetectedStringIndex = nil
+            print(String(format: "[AKTuner:StringDetect] release last=%d (last=%.1f¢ > %.0f, min=%.1f¢)", last, lastCents, release, minCents))
+            return nil
+        } else {
+            if minCents <= acquire {
+                lastDetectedStringIndex = closestIndex
+                print(String(format: "[AKTuner:StringDetect] acquire %d (min=%.1f¢ <= %.0f)", closestIndex, minCents, acquire))
+                return closestIndex
+            }
+            return nil
         }
-
-        if minCents < 100 {
-            return closestStringIndex
-        }
-
-        return nil
     }
 }

@@ -84,8 +84,23 @@ struct TuningMeter: View {
             // This is especially important for auto mode
             let newRotation: Double
             if let directCents = directCents {
-                // Convert cents directly to rotation (-50 to +50 cents maps to -45 to +45 degrees)
-                newRotation = max(-45, min(45, directCents * 0.9))
+                // Piecewise compression: keep sensitivity near target, compress far from target
+                let knee = 10.0      // cents where slope changes
+                let nearSlope = 0.9  // deg per cent within knee
+                let farSlope = 0.05  // deg per cent beyond knee
+                let limit = 45.0     // hard visual limit (deg)
+
+                let c = directCents
+                let sign = c >= 0 ? 1.0 : -1.0
+                let absC = abs(c)
+                let deg: Double
+                if absC <= knee {
+                    deg = nearSlope * absC
+                } else {
+                    deg = nearSlope * knee + farSlope * (absC - knee)
+                }
+                newRotation = max(-limit, min(limit, sign * deg))
+                print(String(format: "[Needle] directCents=%.1f -> piecewise rot=%.1f°", directCents, newRotation))
             } else {
                 // Fall back to needle mapper for manual mode
                 newRotation = needleMapper.rotationDegrees(
@@ -94,6 +109,7 @@ struct TuningMeter: View {
                     previousDegrees: animatedRotation,
                     maxAngle: 45.0
                 )
+                print(String(format: "[Needle] manual curr=%.2f target=%.2f -> rot=%.1f°", currentFrequency, targetFrequency, newRotation))
             }
 
             withAnimation(.linear(duration: 0.05)) {
