@@ -100,7 +100,9 @@ struct TuningMeter: View {
                     deg = nearSlope * knee + farSlope * (absC - knee)
                 }
                 newRotation = max(-limit, min(limit, sign * deg))
+                #if DEBUG
                 print(String(format: "[Needle] directCents=%.1f -> piecewise rot=%.1f°", directCents, newRotation))
+                #endif
             } else {
                 // Fall back to needle mapper for manual mode
                 newRotation = needleMapper.rotationDegrees(
@@ -109,7 +111,9 @@ struct TuningMeter: View {
                     previousDegrees: animatedRotation,
                     maxAngle: 45.0
                 )
+                #if DEBUG
                 print(String(format: "[Needle] manual curr=%.2f target=%.2f -> rot=%.1f°", currentFrequency, targetFrequency, newRotation))
+                #endif
             }
 
             withAnimation(.linear(duration: 0.05)) {

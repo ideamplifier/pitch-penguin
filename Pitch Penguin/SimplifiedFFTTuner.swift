@@ -98,7 +98,9 @@ final class SimplifiedFFTTuner: ObservableObject {
         case .granted:
             setupAndStartEngine(session: session)
         case .denied:
+            #if DEBUG
             print("❌ Microphone permission denied. Please enable it in Settings.")
+            #endif
             // Consider showing an alert to the user
             return
         case .undetermined:
@@ -107,12 +109,16 @@ final class SimplifiedFFTTuner: ObservableObject {
                     if granted {
                         self?.setupAndStartEngine(session: session)
                     } else {
+                        #if DEBUG
                         print("❌ Microphone permission was not granted.")
+                        #endif
                     }
                 }
             }
         @unknown default:
+            #if DEBUG
             print("❌ Unknown case for record permission")
+            #endif
         }
     }
 
@@ -137,10 +143,14 @@ final class SimplifiedFFTTuner: ObservableObject {
             isRecording = true
             resetState()
 
+            #if DEBUG
             print("🎸 SimplifiedFFTTuner started - \(sampleRate)Hz")
+            #endif
 
         } catch {
+            #if DEBUG
             print("❌ Failed to start: \(error)")
+            #endif
         }
     }
 
@@ -386,7 +396,9 @@ final class SimplifiedFFTTuner: ObservableObject {
                 self.detectedString = self.detectGuitarString(frequency)
                 self.confidence = min(1.0, amplitude * 20)
 
+                #if DEBUG
                 print("🎸 \(self.currentNote): \(String(format: "%.1f", frequency))Hz (\(self.cents > 0 ? "+" : "")\(self.cents)¢)")
+                #endif
             } else {
                 self.currentNote = "--"
                 self.cents = 0

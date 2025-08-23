@@ -70,9 +70,13 @@ struct ContentView: View {
         .onChange(of: selectedInstrument) { _, _ in selectedString = 0 }
         .onChange(of: selectedTuningIndex) { _, _ in
             audioEngine.setTuning(currentTuning)
+            #if DEBUG
             print("[ContentView] Tuning changed -> \(currentTuning.name)")
+            #endif
             let freqs = currentStrings.map { String(format: "%.2f", $0.frequency) }.joined(separator: ", ")
+            #if DEBUG
             print("[ContentView] Current strings (Hz): [\(freqs)]")
+            #endif
             selectedString = 0
         }
         .alert("Microphone Permission", isPresented: $showPermissionAlert) {
@@ -144,7 +148,9 @@ struct ContentView: View {
     private func autoSelectString(frequency: Double) {
         let stringFreqs = currentStrings.map { $0.frequency }
         let newString = AutoStringSelector.pickString(for: frequency, stringsHz: stringFreqs, prevLocked: selectedString)
+        #if DEBUG
         print(String(format: "[AutoSelect] f0=%.2f, strings=%@, pick=%d", frequency, stringFreqs.map{String(format: "%.2f", $0)}.joined(separator: ","), newString))
+        #endif
         if newString != selectedString {
             autoSelectDebounceTimer?.invalidate()
             pendingAutoSelect = newString
@@ -153,10 +159,14 @@ struct ContentView: View {
                 let liveStrings = self.currentStrings.map { $0.frequency }
                 let fNow = Double(self.audioEngine.frequency)
                 let currentNewString = AutoStringSelector.pickString(for: fNow, stringsHz: liveStrings, prevLocked: self.selectedString)
+                #if DEBUG
                 print(String(format: "[AutoSelect:debounce] f0=%.2f, strings=%@, pick=%d, pending=%@", fNow, liveStrings.map{String(format: "%.2f", $0)}.joined(separator: ","), currentNewString, String(describing: self.pendingAutoSelect)))
+                #endif
                 if currentNewString == self.pendingAutoSelect {
                     self.selectedString = currentNewString
+                    #if DEBUG
                     print("[AutoSelect] selectedString -> \(self.selectedString)")
+                    #endif
                 }
                 self.pendingAutoSelect = nil
             }
@@ -175,7 +185,9 @@ struct ContentView: View {
             let cents = abs(1200 * log2(currentFrequency / string.frequency))
             stringAccuracyStates[safe: index] = cents < 5
             if index == selectedString {
+                #if DEBUG
                 print(String(format: "[Accuracy] curr=%.2fHz target=%.2fHz -> %.1f¢", currentFrequency, string.frequency, cents))
+                #endif
             }
         }
     }

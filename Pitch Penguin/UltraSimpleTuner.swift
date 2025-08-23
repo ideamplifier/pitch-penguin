@@ -94,7 +94,9 @@ final class UltraSimpleTuner: ObservableObject {
         case .granted:
             setupAndStartEngine(session: session)
         case .denied:
+            #if DEBUG
             print("❌ Microphone permission denied. Please enable it in Settings.")
+            #endif
             // Consider showing an alert to the user
             return
         case .undetermined:
@@ -103,18 +105,24 @@ final class UltraSimpleTuner: ObservableObject {
                     if granted {
                         self?.setupAndStartEngine(session: session)
                     } else {
+                        #if DEBUG
                         print("❌ Microphone permission was not granted.")
+                        #endif
                     }
                 }
             }
         @unknown default:
+            #if DEBUG
             print("❌ Unknown case for record permission")
+            #endif
         }
     }
 
     private func setupAndStartEngine(session: AVAudioSession) {
         do {
+            #if DEBUG
             print("✅ Permission granted. Attempting to start engine with minimal setup...")
+            #endif
 
             // 1. Configure session
             try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker])
@@ -132,12 +140,16 @@ final class UltraSimpleTuner: ObservableObject {
 
             DispatchQueue.main.async {
                 self.isRecording = true
+                #if DEBUG
                 print("✅✅✅ Audio engine started successfully! The problem is likely in the tap installation or audio processing.")
+                #endif
             }
 
         } catch {
+            #if DEBUG
             print("❌❌❌ Failed to start even with minimal setup: \(error)")
             print("The problem is fundamental to the engine start or session activation.")
+            #endif
         }
     }
 
@@ -385,7 +397,11 @@ final class UltraSimpleTuner: ObservableObject {
                 self.detectedString = self.detectGuitarString(frequency)
 
                 let icon = isStable ? "✅" : "🎸"
+                #if DEBUG
+                #if DEBUG
                 print("\(icon) \(self.currentNote): \(String(format: "%.1f", frequency))Hz (\(self.cents > 0 ? "+" : "")\(self.cents)¢)")
+                #endif
+                #endif
             } else {
                 self.currentNote = "--"
                 self.cents = 0

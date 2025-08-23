@@ -75,12 +75,16 @@ final class AudioKitTunerEngine: ObservableObject {
             try session.setPreferredSampleRate(48000)
             try session.setActive(true)
         } catch {
+            #if DEBUG
             print("Failed to setup audio session: \(error)")
+            #endif
         }
 
         // Setup AudioKit
         guard let input = engine.input else {
+            #if DEBUG
             print("AudioKit: No input available")
+            #endif
             return
         }
 
@@ -98,7 +102,9 @@ final class AudioKitTunerEngine: ObservableObject {
         guard !isRecording else { return }
 
         guard let mic = mic else {
+            #if DEBUG
             print("No microphone available")
+            #endif
             return
         }
 
@@ -117,10 +123,14 @@ final class AudioKitTunerEngine: ObservableObject {
             lastFrequency = 0
             frequencyBuffer.removeAll()
 
+            #if DEBUG
             print("🎸 AudioKit Tuner started successfully")
+            #endif
 
         } catch {
+            #if DEBUG
             print("AudioKit failed to start: \(error)")
+            #endif
         }
     }
 
@@ -142,7 +152,9 @@ final class AudioKitTunerEngine: ObservableObject {
             self.confidence = 0
         }
 
+        #if DEBUG
         print("🛑 AudioKit Tuner stopped")
+        #endif
     }
 
     // MARK: - Pitch Processing
@@ -267,7 +279,9 @@ final class AudioKitTunerEngine: ObservableObject {
                 self.detectedString = self.detectGuitarString(frequency)
 
                 // Debug output
+                #if DEBUG
                 print("🎵 \(self.currentNote): \(String(format: "%.1f", frequency))Hz (\(self.cents > 0 ? "+" : "")\(self.cents)¢) [Amp: \(String(format: "%.3f", amplitude))]")
+                #endif
             } else {
                 self.currentNote = "--"
                 self.cents = 0

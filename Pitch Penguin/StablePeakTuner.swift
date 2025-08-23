@@ -99,7 +99,11 @@ final class StablePeakTuner: ObservableObject {
         case .granted:
             setupAndStartEngine(session: session)
         case .denied:
+            #if DEBUG
+            #if DEBUG
             print("❌ Microphone permission denied. Please enable it in Settings.")
+            #endif
+            #endif
             // Consider showing an alert to the user
             return
         case .undetermined:
@@ -108,12 +112,20 @@ final class StablePeakTuner: ObservableObject {
                     if granted {
                         self?.setupAndStartEngine(session: session)
                     } else {
+                        #if DEBUG
+                        #if DEBUG
                         print("❌ Microphone permission was not granted.")
+                        #endif
+                        #endif
                     }
                 }
             }
         @unknown default:
+            #if DEBUG
+            #if DEBUG
             print("❌ Unknown case for record permission")
+            #endif
+            #endif
         }
     }
 
@@ -138,10 +150,18 @@ final class StablePeakTuner: ObservableObject {
             isRecording = true
             resetState()
 
+            #if DEBUG
+            #if DEBUG
             print("🎸 StablePeakTuner started - \(sampleRate)Hz")
+            #endif
+            #endif
 
         } catch {
+            #if DEBUG
+            #if DEBUG
             print("❌ Failed to start: \(error)")
+            #endif
+            #endif
         }
     }
 
@@ -410,9 +430,17 @@ final class StablePeakTuner: ObservableObject {
                 self.confidence = self.lockCounter > 0 ? 1.0 : 0.5
 
                 if self.lockCounter > 0 {
+                    #if DEBUG
+                    #if DEBUG
                     print("🔒 LOCKED: \(self.currentNote) \(String(format: "%.1f", frequency))Hz (\(self.cents > 0 ? "+" : "")\(self.cents)¢)")
+                    #endif
+                    #endif
                 } else {
+                    #if DEBUG
+                    #if DEBUG
                     print("🎸 \(self.currentNote): \(String(format: "%.1f", frequency))Hz (\(self.cents > 0 ? "+" : "")\(self.cents)¢)")
+                    #endif
+                    #endif
                 }
             } else {
                 self.currentNote = "--"
